@@ -5,7 +5,6 @@ import { authService, type LoginCredentials, type LoginResponse } from '../servi
 import { useAuthStore } from '../stores/auth'
 import logo     from '../assets/Logo.png'
 import starTrail from '../assets/Design.png'
-import HomePage from '../components/HomePage.vue'
 
 const router = useRouter()
 const auth   = useAuthStore()
@@ -14,8 +13,6 @@ const form = reactive<LoginCredentials>({ email: '', password: '' })
 const error   = ref('')
 const success = ref('')
 const loading = ref(false)
-
-
 
 const handleLogin = async () => {
   error.value   = ''
@@ -32,7 +29,8 @@ const handleLogin = async () => {
       refresh_token: data.refresh_token,
     })
 
-    router.push('HomePage')
+    success.value = `Welcome back, ${data.username}!`
+    router.push('/home')
   } catch (err: any) {
     error.value =
       err?.response?.data?.detail ||
