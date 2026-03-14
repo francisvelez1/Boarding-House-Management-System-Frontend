@@ -21,7 +21,7 @@ export interface LoginResponse {
   token_type:    string
 }
 
-const baseURL: string = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
+const baseURL: string = import.meta.env.VITE_API_URL
 
 export class AuthService {
   private api: AxiosInstance
