@@ -1,0 +1,9 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html { font-family: 'DM Sans', 'Outfit', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  body { background: #faf7ff; }
+  *, *::before, *::after { box-sizing: border-box; }
+}
