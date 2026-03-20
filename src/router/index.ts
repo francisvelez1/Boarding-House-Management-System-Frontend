@@ -1,9 +1,21 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { useAuthStore } from '../stores/auth.ts'
+import GuestPage    from '../components/GuestPage.vue'
+import LoginForm    from '../components/LoginForm.vue'
+import RegisterForm from '../components/RegisterForm.vue'
+import HomePage     from '../components/HomePage.vue'
 import { useAuthStore } from '../stores/auth'
+
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
+    // Updated the Path for Guest para siya first makita
+    { path: '/',         name: 'Guest',    component: GuestPage }, 
+    { path: '/login',    name: 'Login',    component: LoginForm,    meta: { guest: true } },
+    { path: '/register', name: 'Register', component: RegisterForm, meta: { guest: true } },
+    { path: '/home',     name: 'Home',     component: HomePage,     meta: { requiresAuth: true } },
+    { path: '/:pathMatch(.*)*', redirect: '/' },
     // ── Public Routes ──
     { 
       path: '/login',    
