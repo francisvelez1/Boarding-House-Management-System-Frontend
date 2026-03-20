@@ -9,8 +9,8 @@
                 <span id = "description">ResidEase</span>
             </div>
             <div id = "buttonContainer1">
-                <button id="button1">Log In</button>
-                <button id="button2"><span>Signup</span></button>
+                <button id="button1" @click = "$router.push('/login')">Log In</button>
+                <button id="button2" @click = "$router.push('/register')"><span>Signup</span></button>
             </div>
 
             <div id ="buttonContainer3">
@@ -55,6 +55,7 @@
 
         <!-- For Filtering Searches -->
         <div id="filterContainer">
+            <!-- Filtering the Types of Room -->
             <div class="filterGroup">
                 <span class="filterLabel">Type:</span>
                     <button 
@@ -64,18 +65,22 @@
                         @click="selectedType = type">
                         {{ type }}
                     </button>
+                </div>
 
-                 <span class="filterLabel">Status:</span>
-                <button 
-                     v-for="status in roomStatus" 
-                        :key="status"
-                        :class="['filterBtn', { active: selectedStatus === status }]"
-                         @click="selectedStatus = status">
-                         {{ status }}
+
+                <div class="filterGroup">
+                    <span class="filterLabel">Status:</span>
+                        <button 
+                            v-for="status in roomStatus" 
+                            :key="status"
+                            :class="['filterBtn', { active: selectedStatus === status }]"
+                            @click="selectedStatus = status">
+                            {{ status }}
                 </button>
+                </div>
 
             </div>
-        </div>
+        
 
 
         
@@ -210,25 +215,29 @@ export default {
 #filterContainer {
     display: flex;
     align-items: center;
+    justify-content: flex-start;
     gap: 20px;
-    margin-left: 350px;
+    margin-left: 320px;
     margin-top: 15px;
     background: #1e2a3a;
-    padding: 10px 20px;
+    padding: 10px 30px;
     border-radius: 50px;
-    width: 800px;
+    width: 900px;
 }
 
 .filterGroup {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-start;
     gap: 18px;
+}
+.filterGroup:last-child {
+    margin-left: 40px; 
 }
 .filterLabel {
     color: #9ca3af;
     font-size: 15px;
-    font-weight: 600;
+    font-weight: 600;   
     margin-right: 5px;
 }
 .filterBtn {
@@ -302,7 +311,7 @@ export default {
   color: transparent;
 }
 #button5{
-display:flex; 
+  display:flex; 
   align-items:center;
   justify-content: center; 
   width: 200px;
@@ -311,7 +320,7 @@ display:flex;
   background: transparent;
   border:transparent;
   font-size:20px;  
-  font-weight:800;  
+  font-weight:700;  
   cursor:pointer;
   color:#6b7280;
   transition:background .15s;
@@ -326,7 +335,7 @@ display:flex;
   background: transparent;
   border:transparent;
   font-size:20px;  
-  font-weight:800;    
+  font-weight:700;   
   cursor:pointer;
    color:#6b7280;
   transition:background .15s;
@@ -341,7 +350,7 @@ padding:8px 16px;
 border: transparent;
 background: transparent;
 font-size:20px;  
-font-weight:800; 
+font-weight:700;
 cursor:pointer;
  color:#6b7280;
 }
@@ -388,6 +397,7 @@ cursor:pointer;
 }
 #description2{
     font-size: 75px;
+    font-weight: 700;
     line-height: 80px;
     background: linear-gradient(90deg, #ae68fa, #f1966e);
      -webkit-background-clip: text;

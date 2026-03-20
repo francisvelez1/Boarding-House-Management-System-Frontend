@@ -17,6 +17,12 @@ const router = createRouter({
     { path: '/:pathMatch(.*)*', redirect: '/' },
     // ── Public Routes ──
     { 
+      path: '/',    
+      name: 'GuestPage',    
+      component: () => import('../views/auth/GuestPage.vue'), // Path: views/auth/
+      meta: { requiresAuth: false } 
+    },
+    { 
       path: '/login',    
       name: 'Login',    
       component: () => import('../views/auth/LoginView.vue'), // Path: views/auth/
@@ -60,8 +66,8 @@ router.beforeEach((to) => {
   }
 
   // Prevent logged-in users from seeing login/register pages
-  if (isLoggedIn && (to.path === '/login' || to.path === '/register')) {
-    return { path: '/home' }
+  if (isLoggedIn && (to.path === '/login' || to.path === '/register' || to.path === '/')) {
+    return { path: '/' }
   }
 })
 
