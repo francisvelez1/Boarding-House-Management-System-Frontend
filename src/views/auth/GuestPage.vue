@@ -1,440 +1,287 @@
-<template >
-    <div class="page">
-        <!-- Nav Bar sa Guest Page -->
-        <nav id = "guestNav">
-            <div id ="Container1">
-                <div id="Container2">
-                    <img src="/public/Logo.png" alt="ResidEase" class="brandLogo">
-                </div>  
-                <span id = "description">ResidEase</span>
-            </div>
-            <div id = "buttonContainer1">
-                <button id="button1" @click = "$router.push('/login')">Log In</button>
-                <button id="button2" @click = "$router.push('/register')"><span>Signup</span></button>
-            </div>
+<script setup lang="ts">
+import { ref } from 'vue'
+import { useRouter } from 'vue-router'
+import logo from '../../assets/Logo.png'
+import starTrail from '../../assets/Design.png'
 
-            <div id ="buttonContainer3">
-                <button id="button5">Browse Rooms</button>
-                <button id="button6">About</button>
-                <button id="button7">Contact Us</button>
-            </div>
+const router = useRouter()
 
-        </nav>
+// Filter State
+const selectedType = ref('All rooms')
+const selectedStatus = ref('Available')
 
-        <!-- Container para sa Logo sa GuestPage -->
-        <div id="designContainer" >
-            <img src="/public/Design.png" alt="ResidEase" class="designGuestPage">
-        </div>
+const roomTypes = ['All rooms', 'Single', 'Double', 'Shared', 'Studio']
+const roomStatus = ['Available', 'All']
 
-        <!-- Div for the main headline sa page -->
-        <div id = "description2Container">
-            <h1 id="description2">
-               Your Space,<br> Your Comfort
-            </h1>
-        </div>
- 
-        <div id= "description3Container">
-            <h2 id="description3">
-                Browse available rooms, check amenities, and inquire directly online.
-            </h2>
-        </div>
-
-        <div id = "searchContainer">
-            <div id = "searchBar">
-                <span id="searchIcon">&#128269;</span>
-                <div id = "searchDivider"></div>
-                <select id="priceDropdown">
-                    <option>Any price</option>
-                    <option>₱1,000 - ₱3,000</option>
-                    <option>₱3,000 - ₱5,000</option>
-                    <option>₱5,000+</option>
-                </select>
-                <button id="searchButton">Search</button>
-            </div>
-        </div>
-
-        <!-- For Filtering Searches -->
-        <div id="filterContainer">
-            <!-- Filtering the Types of Room -->
-            <div class="filterGroup">
-                <span class="filterLabel">Type:</span>
-                    <button 
-                        v-for="type in roomTypes" 
-                        :key="type"
-                        :class="['filterBtn', { active: selectedType === type }]"
-                        @click="selectedType = type">
-                        {{ type }}
-                    </button>
-                </div>
-
-
-                <div class="filterGroup">
-                    <span class="filterLabel">Status:</span>
-                        <button 
-                            v-for="status in roomStatus" 
-                            :key="status"
-                            :class="['filterBtn', { active: selectedStatus === status }]"
-                            @click="selectedStatus = status">
-                            {{ status }}
-                </button>
-                </div>
-
-            </div>
-        
-
-
-        
-        </div>
-</template>
-
-<script>
-export default {
-    data() {
-        return {
-            selectedType: 'All rooms',
-            selectedStatus: 'Available',
-            roomTypes: ['All rooms', 'Single', 'Double', 'Shared', 'Studio'],
-            roomStatus: ['Available', 'All']
-             }
-          }
-
-}
+const goToLogin = () => router.push('/login')
+const goToRegister = () => router.push('/register')
 </script>
 
+<template>
+  <div class="auth-container">
+    <img :src="starTrail" class="bg-design" alt="design">
 
-<!-- Editting the Guest Page itself -->
-<style lang="scss" scoped>
-.page {
+    <nav class="navbar">
+      <div class="brand">
+        <img :src="logo" alt="ResidEase" class="logo">
+        <span class="brand-name">ResidEase</span>
+      </div>
+
+      <div class="nav-links">
+        <button class="nav-btn">Browse Rooms</button>
+        <button class="nav-btn">About</button>
+        <button class="nav-btn">Contact Us</button>
+      </div>
+
+      <div class="auth-actions">
+        <button class="text-link" @click="goToLogin">Log In</button>
+        <button class="btn-primary mini" @click="goToRegister">Sign Up</button>
+      </div>
+    </nav>
+
+    <main class="content">
+      <div class="hero-section">
+        <div class="status-pill">
+          <span class="dot"></span> 18 rooms available now
+        </div>
+
+        <h1 class="title">
+          Your Space, <br />
+          <span class="gradient-text">Your Comfort</span>
+        </h1>
+
+        <p class="subtitle">
+          Browse available rooms, check amenities, and inquire directly online.
+        </p>
+
+        <div class="search-card">
+          <div class="search-group">
+            <span class="icon">🔍</span>
+            <input type="text" placeholder="Search location..." class="input-minimal" />
+          </div>
+          <div class="v-divider"></div>
+          <div class="price-group">
+            <select class="input-minimal">
+              <option>Any price</option>
+              <option>₱1,000 - ₱3,000</option>
+              <option>₱3,000 - ₱5,000</option>
+            </select>
+          </div>
+          <button class="btn-search">Search</button>
+        </div>
+      </div>
+
+      <div class="filter-container">
+        <div class="filter-card">
+          <div class="filter-row">
+            <span class="filter-label">Type:</span>
+            <div class="chip-group">
+              <button 
+                v-for="type in roomTypes" :key="type"
+                :class="['chip', { active: selectedType === type }]"
+                @click="selectedType = type"
+              >{{ type }}</button>
+            </div>
+          </div>
+          <div class="filter-row">
+            <span class="filter-label">Status:</span>
+            <div class="chip-group">
+              <button 
+                v-for="status in roomStatus" :key="status"
+                :class="['chip', { active: selectedStatus === status }]"
+                @click="selectedStatus = status"
+              >{{ status }}</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</template>
+
+<style scoped>
+/* Inherited from LoginView.vue */
+.auth-container {
   min-height: 100vh;
-  background: #faf7ff;
-}
-// Nav Container para sa mga Components
-#guestNav{
-    justify-content: space-between;
-    display: flex;
-    height: 120px;
-}
-// Page Container for Image and Description
-#Container1{
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-left: -70px;
-    margin-top: 20px;
-    width: 500px;
-}
-// Container for Image
-#Container2{
-    display: flex;
-    align-items: center;
-}
-// Container for Buttons
-#buttonContainer1{
-    display: flex;
-    align-items: center;
-    margin-right: 5px;
-    margin-top: 20px;
-    width: 450px;
-    justify-content:center ;   
-    gap: 50px;
-}
-#buttonContainer3{
-    position: absolute;
-    display: flex;
-    justify-content:center;
-    align-items: center;
-    margin-left: 550px;
-    margin-top: 35px;
-    width: 600px;
-    gap: 15px;
+  width: 100%;
+  background: #faf7ff; /* Matching your Login background */
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow-x: hidden;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
 }
 
-//Search Container
-#searchContainer {
-    display: flex;
-    margin-left: 390px;
-    margin-top: -70px;
-    width: 750px;
+.bg-design {
+  position: absolute;
+  top: -100px;
+  left: -50px;
+  width: 600px;
+  opacity: 0.8;
+  pointer-events: none;
 }
 
-#searchBar {
-    display: flex;
-    align-items: center;
-    background: #1e2a3a;       
-    border-radius: 50px;    
-    padding: 10px 20px;
-    width: 100%;
-    gap: 12px;
-}
-
-#searchIcon {
-    font-size: 18px;
-    color: #9ca3af;
-}
-
-#searchDivider {
-    width: 1px;
-    height: 30px;
-    background: #4b5563; 
-}
-#priceDropdown {
-    flex: 1;                    
-    background: #1e2a3a;
-    border: none;
-    color: white;
-    font-size: 16px;
-    font-weight: 500;
-    cursor: pointer;
-    outline: none;
-    appearance: none;    
-    -webkit-appearance: none;
-}
-
-#priceDropdown::after {
-    content: '▾';
-    color: white;
-}
-
-#searchButton {
-    background: transparent;
-    border: 2px solid #4b5563;
-    color: white;
-    padding: 8px 20px;
-    border-radius: 50px;   
-    font-size: 15px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
-
-    &:hover {
-        background: white;
-        color: #1e2a3a;
-    }
-}
-// For Filtering Searches
-#filterContainer {
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    gap: 20px;
-    margin-left: 320px;
-    margin-top: 15px;
-    background: #1e2a3a;
-    padding: 10px 30px;
-    border-radius: 50px;
-    width: 900px;
-}
-
-.filterGroup {
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    gap: 18px;
-}
-.filterGroup:last-child {
-    margin-left: 40px; 
-}
-.filterLabel {
-    color: #9ca3af;
-    font-size: 15px;
-    font-weight: 600;   
-    margin-right: 5px;
-}
-.filterBtn {
-    background: transparent;
-    border: 1.5px solid #4b5563;
-    color: white;
-    padding: 6px 16px;
-    border-radius: 10px;
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
-
-    &:hover {
-        border-color: #ae68fa;
-        color: #ae68fa;
-    }
-
-    &.active {
-        background: #ae68fa;  // 👈 highlighted when selected
-        border-color: #ae68fa;
-        color: white;
-    }
-}
-
-
-// Button Lay Out
-#button1{
-  display:flex; 
-  align-items:center;
-  justify-content: center; 
-  width: 130px;
-  height: 50px;
-  gap:6px;
-  padding:8px 16px; 
-  border-radius:10px; 
-  border:none;
-  background: linear-gradient(90deg, #ae68fa, #f1966e);
-  font-size: 17px; 
-  font-weight:600; cursor:pointer;
-  color: white;
-  transition:background .15s;
-}
-#button2 {
-  display: flex; 
+/* Navbar */
+.navbar {
+  display: flex;
+  justify-content: space-between;
   align-items: center;
-  justify-content: center; 
-  width: 130px;
-  height: 50px;
-  padding: 8px 16px; 
-  border-radius: 10px; 
-  border: 2px solid transparent;
-  background:
-    linear-gradient(white, white) padding-box,
-    linear-gradient(90deg, #ae68fa, #f1966e) border-box;
-  font-size: 17px; 
+  padding: 20px 80px;
+  z-index: 10;
+}
+
+.brand { display: flex; align-items: center; gap: 12px; }
+.logo { width: 45px; height: 40px; }
+.brand-name { font-size: 20px; font-weight: 700; color: #6b7280; }
+
+.nav-links { display: flex; gap: 32px; }
+.nav-btn {
+  background: none; border: none; color: #6b7280;
+  font-size: 15px; font-weight: 600; cursor: pointer;
+  transition: color 0.2s;
+}
+.nav-btn:hover { color: #ae68fa; }
+
+/* Buttons matching LoginView.vue */
+.btn-primary {
+  background: #ae68fa;
+  color: #fff;
+  border: none;
+  padding: 12px 28px;
+  border-radius: 24px;
   font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 4px 12px rgba(174, 104, 250, 0.3);
+}
+.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 15px rgba(174, 104, 250, 0.4); }
+.btn-primary.mini { padding: 8px 20px; }
+
+.text-link {
+  background: transparent; border: none;
+  font-size: 14px; font-weight: 600; color: #6366f1;
+  cursor: pointer; margin-right: 20px;
+}
+
+/* Hero Section */
+.content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 60px;
+  z-index: 5;
+}
+
+.hero-section { text-align: center; max-width: 800px; }
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #fff;
+  padding: 6px 16px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #6366f1;
+  border: 1px solid rgba(210, 196, 255, 0.5);
+  margin-bottom: 24px;
+}
+.dot { width: 8px; height: 8px; background: #6366f1; border-radius: 50%; }
+
+.title {
+  font-size: 72px;
+  font-weight: 800;
+  line-height: 1.1;
+  color: #1f2937;
+  margin-bottom: 20px;
+}
+
+.gradient-text {
+  background: linear-gradient(90deg, #ae68fa, #f1966e);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.subtitle {
+  font-size: 18px;
+  color: #6b7280;
+  max-width: 500px;
+  margin: 0 auto 40px;
+}
+
+/* Search bar matching Card style */
+.search-card {
+  background: #fff;
+  padding: 12px;
+  border-radius: 30px;
+  display: flex;
+  align-items: center;
+  box-shadow: 0 20px 50px rgba(149, 132, 226, 0.15);
+  border: 1px solid rgba(210, 196, 255, 0.4);
+  width: 100%;
+  max-width: 650px;
+}
+
+.search-group { flex: 1; display: flex; align-items: center; padding-left: 15px; }
+.input-minimal {
+  border: none; outline: none; width: 100%;
+  font-size: 15px; color: #4b5563; background: transparent;
+}
+.v-divider { width: 1px; height: 30px; background: #e0ddf7; margin: 0 20px; }
+
+.btn-search {
+  background: #1f2937;
+  color: white;
+  border: none;
+  padding: 12px 30px;
+  border-radius: 20px;
+  font-weight: 700;
   cursor: pointer;
 }
 
-#button2 span {
-  background: linear-gradient(90deg, #ae68fa, #f1966e);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+/* Filter Section */
+.filter-container { margin-top: 40px; width: 100%; max-width: 650px; }
+.filter-card {
+  background: #fff;
+  border-radius: 24px;
+  padding: 24px;
+  border: 1px solid rgba(210, 196, 255, 0.4);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
-#button4 span {
-  background: linear-gradient(90deg, #ae68fa, #f1966e);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-#button5{
-  display:flex; 
-  align-items:center;
-  justify-content: center; 
-  width: 200px;
-  height: 70px;
-  padding:8px 16px; 
+
+.filter-row { display: flex; align-items: center; gap: 16px; }
+.filter-label { font-size: 14px; font-weight: 700; color: #9ca3af; width: 60px; }
+.chip-group { display: flex; gap: 8px; }
+
+.chip {
   background: transparent;
-  border:transparent;
-  font-size:20px;  
-  font-weight:700;  
-  cursor:pointer;
-  color:#6b7280;
-  transition:background .15s;
-}
-#button6{
-display:flex; 
-  align-items:center;
-  justify-content: center; 
-  width: 120px;
-  height: 60px;
-  padding:8px 16px; 
-  background: transparent;
-  border:transparent;
-  font-size:20px;  
-  font-weight:700;   
-  cursor:pointer;
-   color:#6b7280;
-  transition:background .15s;
-}
-#button7{
-display:flex; 
-align-items:center;
-justify-content: center; 
-width: 200px;
-height: 60px;
-padding:8px 16px; 
-border: transparent;
-background: transparent;
-font-size:20px;  
-font-weight:700;
-cursor:pointer;
- color:#6b7280;
+  border: 1px solid #e0ddf7;
+  padding: 6px 16px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #6b7280;
+  cursor: pointer;
+  transition: 0.2s;
 }
 
-// Image Size
-.brandLogo{
-  width:55px; 
-  height:45px; 
+.chip.active {
+  background: rgba(174, 104, 250, 0.1);
+  border-color: #ae68fa;
+  color: #ae68fa;
 }
 
-// Font for Description
-#description{
-    font-size: 20px;
-    font-weight: 700; 
-    color:#6b7280;
+@media (max-width: 768px) {
+  .navbar { padding: 20px; }
+  .nav-links { display: none; }
+  .title { font-size: 48px; }
+  .search-card { flex-direction: column; border-radius: 20px; gap: 10px; }
+  .v-divider { display: none; }
 }
-
-#description2Container{
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    height: 400px;
-    width: 650px;
-    margin-left: 450px;
-    margin-top: -70px;
-}
-#description3Container{
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    height: 200px;
-    width: 750px;
-    margin-left: 390px;
-    margin-top: -190px;
-}
-#designContainer{
-    position: absolute; 
-    top: -100px;       
-    left:-20px;
-    display: flex;
-    align-items: center;
-    width: 500px;
-    height: 600px;
-}
-#description2{
-    font-size: 75px;
-    font-weight: 700;
-    line-height: 80px;
-    background: linear-gradient(90deg, #ae68fa, #f1966e);
-     -webkit-background-clip: text;
-     background-clip: text;
-     color: transparent;
-}
-#description3{
-    font-size: 19px;
-    font-weight: 500;
-    font-style: oblique;
-    align-items: center;
-    justify-content: center;
-    color: #9DB2BF ;
-
-}
-.designGuestPage{
-    width:400px; 
-    height:300px; 
-}
-
-
-#backgroundImage{
-    position: absolute;
-    align-items: center;
-    justify-content: center;
-    top: 100px;       
-    left: 850px;
-    display: flex;
-    width: 600px;
-    height: 500px;
-}
-
-.background{
-    display: flex;
-    width:600px; 
-    height:500px; 
-}
-
-
 </style>

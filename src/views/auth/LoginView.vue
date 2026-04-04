@@ -56,8 +56,8 @@ const sendOtp = async () => {
     await authService.forgotPassword(forgotEmail.value)
     forgotMsg.value = 'OTP sent! Check your email.'
     forgotStep.value = 'otp'
-  } catch {
-    forgotError.value = 'Something went wrong. Please try again.'
+  } catch (err: any) {
+    forgotError.value = err?.message || 'This email is not registered.'
   } finally {
     forgotLoading.value = false
   }
