@@ -16,7 +16,9 @@ VITE_GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 
 
 npm install
+npm audit fix
 npm install vue-router
+npm install axios
 npm install pinia
 
 npm run dev
