@@ -158,7 +158,7 @@ const occupancyPct = computed(() => {
                   </span>
                   <div class="occ-mini-bar">
                     <div class="occ-fill"
-                         :style="{ width: (parseInt(r.occupants) / parseInt(r.occupants.split('/')[1])) * 100 + '%' }"/>
+                         :style="{ width: (parseInt(r.occupants.split('/')[0] ?? '0', 10) / Math.max(parseInt(r.occupants.split('/')[1] ?? '1', 10), 1)) * 100 + '%' }"/>
                   </div>
                 </div>
               </td>

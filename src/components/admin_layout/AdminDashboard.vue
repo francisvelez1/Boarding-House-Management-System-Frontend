@@ -1,347 +1,823 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
+import type { AdminRole, AdminStatus, AdminStatsResponse } from '../../services/adminService'
 
-const props = defineProps<{
-  tenants: any[]
-  rooms:   any[]
-}>()
-
-const emit = defineEmits<{
-  (e: 'navigate', section: string): void
-}>()
-
-const today = computed(() =>
-  new Date().toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' })
-)
-
-const stats = computed(() => {
-  const active   = props.tenants.filter(t => t.status === 'ACTIVE').length
-  const occupied = props.rooms.filter(r => r.status === 'OCCUPIED').length
-  const vacant   = props.rooms.filter(r => r.status === 'VACANT').length
-  const balance  = props.tenants.reduce((s, t) => s + (t.balance ?? 0), 0)
-  return [
-    { label: 'Active Tenants',   value: active,              sub: `${props.tenants.length} total registered`, trend: 'up',   icon: 'users', color: '#ae68fa', bg: 'rgba(174,104,250,.12)' },
-    { label: 'Occupied Rooms',   value: occupied,            sub: `${props.rooms.length} total rooms`,       trend: 'up',   icon: 'door',  color: '#f1966e', bg: 'rgba(241,150,110,.12)' },
-    { label: 'Vacant Rooms',     value: vacant,              sub: `${props.rooms.filter(r => r.status === 'RESERVED').length} reserved`, trend: 'neutral', icon: 'key', color: '#22c55e', bg: 'rgba(34,197,94,.12)' },
-    { label: 'Pending Balance',  value: '₱' + balance.toLocaleString(), sub: `${props.tenants.filter(t => (t.balance ?? 0) > 0).length} tenants with dues`, trend: balance > 0 ? 'alert' : 'neutral', icon: 'peso', color: '#ef4444', bg: 'rgba(239,68,68,.12)' },
-  ]
-})
-
-const recentActivity = [
-  { icon: '🔑', action: 'Ana Reyes paid ₱4,500 for Room 2A',        time: '2m ago',  color: '#dcfce7' },
-  { icon: '🛏️', action: 'Room 2F set to Maintenance status',         time: '18m ago', color: '#fef3c7' },
-  { icon: '👤', action: 'New tenant Diana Lopez registered',          time: '1h ago',  color: 'rgba(174,104,250,.1)' },
-  { icon: '📋', action: 'Lease renewed for Erick Bueno — Room GF-01', time: '3h ago',  color: '#dbeafe' },
-  { icon: '⚠️', action: 'Gerald Tan has overdue balance ₱5,500',      time: '5h ago',  color: '#fee2e2' },
-]
-
-function statusClass(s: string) {
-  return ({
-    ACTIVE:      'badge-active',
-    PENDING:     'badge-pending',
-    INACTIVE:    'badge-inactive',
-    MOVED_OUT:   'badge-moved',
-    OCCUPIED:    'badge-occupied',
-    VACANT:      'badge-vacant',
-    MAINTENANCE: 'badge-maint',
-    RESERVED:    'badge-reserved',
-  } as any)[s] ?? ''
+export type AdminUserRow = {
+  id: string
+  name: string
+  email: string
+  role: AdminRole
+  status: AdminStatus
+  lastLogin: string
 }
 
-function chipClass(s: string) {
-  return ({
-    OCCUPIED:    'chip-occupied',
-    VACANT:      'chip-vacant',
-    MAINTENANCE: 'chip-maint',
-    RESERVED:    'chip-reserved',
-  } as any)[s] ?? ''
+const props = withDefaults(defineProps<{
+  variant?: 'dashboard' | 'users-full'
+  users: AdminUserRow[]
+  stats: AdminStatsResponse | null
+  loading?: boolean
+}>(), {
+  variant: 'dashboard',
+  loading: false,
+})
+
+const emit = defineEmits<{
+  (e: 'view-all-users'): void
+  (e: 'full-audit'): void
+  (e: 'filters-change', payload: { search: string; role: 'all' | AdminRole; status: 'all' | AdminStatus }): void
+  (e: 'suspend-user', user: AdminUserRow): void
+  (e: 'restore-user', user: AdminUserRow): void
+  (e: 'delete-user', user: AdminUserRow): void
+  (e: 'change-role', user: AdminUserRow): void
+}>()
+
+const search = ref('')
+const roleFilter = ref<'all' | AdminRole>('all')
+const statusFilter = ref<'all' | AdminStatus>('all')
+
+watch([search, roleFilter, statusFilter], () => {
+  emit('filters-change', { search: search.value, role: roleFilter.value, status: statusFilter.value })
+})
+
+const users = computed(() => props.users)
+const stats = computed(() => ({
+  total: props.stats?.total ?? 0,
+  totalTrend: `Active: ${props.stats?.active ?? 0}`,
+  inactive: props.stats?.inactive ?? 0,
+  managers: props.stats?.by_role.manager ?? 0,
+  suspended: props.stats?.suspended ?? 0,
+}))
+
+const filteredUsers = computed(() => users.value)
+
+const auditEntries = [
+  { kind: 'create' as const, text: 'Account created — Pedro Reyes by Brylle (Admin)', time: '2m ago' },
+  { kind: 'role' as const, text: 'Role changed — Maria Reyes Tenant → Manager by Brylle', time: '1h ago' },
+  { kind: 'suspend' as const, text: 'Account suspended — Pedro Lim by Brylle (Admin)', time: '3h ago' },
+  { kind: 'delete' as const, text: 'Account deleted — ghost_user inactive 90d by Brylle', time: '1d ago' },
+  { kind: 'settings' as const, text: 'System settings updated — maintenance mode off by Brylle', time: '7d ago' },
+]
+
+const maintenanceMode = ref(false)
+const newRegistrations = ref(true)
+const emailNotifications = ref(true)
+
+function roleBadgeClass(role: string) {
+  const map: Record<AdminRole, string> = {
+    ROLE_ADMIN: 'role-admin',
+    ROLE_MANAGER: 'role-manager',
+    ROLE_MAINTENANCE: 'role-maintenance',
+    ROLE_TENANT: 'role-tenant',
+  }
+  return map[role as AdminRole] ?? ''
+}
+
+function statusBadgeClass(status: string) {
+  return (
+    {
+      ACTIVE: 'st-active',
+      SUSPENDED: 'st-suspended',
+      INACTIVE: 'st-inactive',
+    } as const
+  )[status as 'ACTIVE' | 'SUSPENDED' | 'INACTIVE'] ?? ''
+}
+
+function roleLabel(role: AdminRole): string {
+  const map: Record<AdminRole, string> = {
+    ROLE_ADMIN: 'Admin',
+    ROLE_MANAGER: 'Manager',
+    ROLE_MAINTENANCE: 'Maintenance',
+    ROLE_TENANT: 'Tenant',
+  }
+  return map[role] ?? 'Tenant'
+}
+
+function auditIconBg(kind: (typeof auditEntries)[number]['kind']) {
+  const map = {
+    create: 'rgba(34,197,94,.15)',
+    role: 'rgba(20,184,166,.15)',
+    suspend: 'rgba(239,68,68,.15)',
+    delete: 'rgba(100,116,139,.15)',
+    settings: 'rgba(234,179,8,.15)',
+  }
+  return map[kind]
+}
+
+function auditGlyph(kind: (typeof auditEntries)[number]['kind']) {
+  const map = {
+    create: '+',
+    role: '↻',
+    suspend: '!',
+    delete: '×',
+    settings: '⚙',
+  }
+  return map[kind]
 }
 </script>
 
 <template>
   <section class="section">
-
-    <!-- Header -->
-    <div class="section-hdr">
-      <div>
-        <h1 class="section-title">Admin Dashboard</h1>
-        <p class="section-sub">System overview · {{ today }}</p>
+    <template v-if="variant === 'dashboard'">
+      <div class="section-hdr">
+        <div>
+          <h1 class="section-title">Admin dashboard</h1>
+          <p class="section-sub">User access, audit trail, and system controls</p>
+        </div>
       </div>
-      <div class="hdr-actions">
-        <button class="btn-outline">Export report</button>
-        <button class="btn-primary-sm" @click="emit('navigate', 'tenants')">+ Add Tenant</button>
-      </div>
-    </div>
 
-    <!-- Stats -->
-    <div class="stats-grid">
-      <div v-for="s in stats" :key="s.label" class="stat-card">
-        <div class="stat-top">
-          <span class="stat-label">{{ s.label }}</span>
-          <div class="stat-icon" :style="{ background: s.bg }">
-            <!-- Users -->
-            <svg v-if="s.icon === 'users'" width="14" height="14" viewBox="0 0 24 24" fill="none" :stroke="s.color" stroke-width="2">
-              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
-              <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-            </svg>
-            <!-- Door -->
-            <svg v-else-if="s.icon === 'door'" width="14" height="14" viewBox="0 0 24 24" fill="none" :stroke="s.color" stroke-width="2">
-              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
-              <polyline points="9 22 9 12 15 12 15 22"/>
-            </svg>
-            <!-- Key -->
-            <svg v-else-if="s.icon === 'key'" width="14" height="14" viewBox="0 0 24 24" fill="none" :stroke="s.color" stroke-width="2">
-              <circle cx="7.5" cy="15.5" r="5.5"/>
-              <path d="M21 2l-9.6 9.6"/><path d="M15.5 7.5L17 6l3 3-1.5 1.5"/>
-            </svg>
-            <!-- Peso -->
-            <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" :stroke="s.color" stroke-width="2">
-              <path d="M12 2a10 10 0 1 0 0 20A10 10 0 0 0 12 2z"/>
-              <path d="M8 8h5a3 3 0 0 1 0 6H8v-6zm0 6h8m-8-3h8"/>
-            </svg>
+      <!-- Stats -->
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-top">
+            <span class="stat-label">Total accounts</span>
+            <div class="stat-icon" style="background: rgba(59,130,246,.12)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                <circle cx="9" cy="7" r="4" />
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
+              </svg>
+            </div>
+          </div>
+          <div class="stat-value">{{ stats.total }}</div>
+          <div class="stat-sub sub-up">{{ stats.totalTrend }}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-top">
+            <span class="stat-label">Inactive accounts</span>
+            <div class="stat-icon" style="background: rgba(239,68,68,.12)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="8" y1="12" x2="16" y2="12" />
+              </svg>
+            </div>
+          </div>
+          <div class="stat-value">{{ stats.inactive }}</div>
+          <div class="stat-sub sub-alert">needs cleanup</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-top">
+            <span class="stat-label">Managers</span>
+            <div class="stat-icon" style="background: rgba(34,197,94,.12)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2">
+                <rect x="2" y="3" width="20" height="14" rx="2" />
+                <line x1="8" y1="21" x2="16" y2="21" />
+                <line x1="12" y1="17" x2="12" y2="21" />
+              </svg>
+            </div>
+          </div>
+          <div class="stat-value">{{ stats.managers }}</div>
+          <div class="stat-sub">active managers</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-top">
+            <span class="stat-label">Suspended</span>
+            <div class="stat-icon" style="background: rgba(234,179,8,.15)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ca8a04" stroke-width="2">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+              </svg>
+            </div>
+          </div>
+          <div class="stat-value">{{ stats.suspended }}</div>
+          <div class="stat-sub">flagged user</div>
+        </div>
+      </div>
+
+      <div class="dash-split">
+        <!-- User accounts -->
+        <div class="card accounts-card">
+          <div class="card-hdr">
+            <span class="card-title">User accounts</span>
+            <button type="button" class="card-link" @click="emit('view-all-users')">View all</button>
+          </div>
+          <div class="filters">
+            <input
+              v-model="search"
+              type="search"
+              class="search-input"
+              placeholder="Search by name or email..."
+              aria-label="Search users"
+            >
+            <select v-model="roleFilter" class="filter-select" aria-label="Filter by role">
+              <option value="all">All roles</option>
+              <option value="ROLE_ADMIN">Admin</option>
+              <option value="ROLE_MANAGER">Manager</option>
+              <option value="ROLE_MAINTENANCE">Maintenance</option>
+              <option value="ROLE_TENANT">Tenant</option>
+            </select>
+            <select v-model="statusFilter" class="filter-select" aria-label="Filter by status">
+              <option value="all">All status</option>
+              <option value="ACTIVE">Active</option>
+              <option value="SUSPENDED">Suspended</option>
+              <option value="INACTIVE">Inactive</option>
+            </select>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>User</th>
+                  <th>Role</th>
+                  <th>Status</th>
+                  <th>Last login</th>
+                  <th class="th-actions">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="loading">
+                  <td colspan="5" class="td-muted">Loading users...</td>
+                </tr>
+                <tr v-for="u in filteredUsers" :key="u.id">
+                  <td>
+                    <div class="user-cell">
+                      <div class="user-av">{{ u.name.split(/\s+/).map(n => n[0]).join('').slice(0, 2) }}</div>
+                      <div class="user-text">
+                        <span class="user-name">{{ u.name }}</span>
+                        <span class="user-email">{{ u.email }}</span>
+                      </div>
+                    </div>
+                  </td>
+                  <td>
+                    <span class="pill" :class="roleBadgeClass(u.role)">{{ roleLabel(u.role) }}</span>
+                  </td>
+                  <td>
+                    <span class="pill" :class="statusBadgeClass(u.status)">{{ u.status.charAt(0) + u.status.slice(1).toLowerCase() }}</span>
+                  </td>
+                  <td class="td-muted">{{ u.lastLogin }}</td>
+                  <td>
+                    <div class="actions">
+                      <template v-if="u.status === 'ACTIVE'">
+                        <button type="button" class="link-btn" @click="emit('change-role', u)">Edit role</button>
+                        <button type="button" class="link-btn danger" @click="emit('suspend-user', u)">Suspend</button>
+                      </template>
+                      <template v-else-if="u.status === 'SUSPENDED'">
+                        <button type="button" class="link-btn" @click="emit('restore-user', u)">Restore</button>
+                        <button type="button" class="link-btn danger" @click="emit('delete-user', u)">Delete</button>
+                      </template>
+                      <template v-else>
+                        <button type="button" class="link-btn danger" @click="emit('delete-user', u)">Delete</button>
+                      </template>
+                    </div>
+                  </td>
+                </tr>
+                <tr v-if="!loading && filteredUsers.length === 0">
+                  <td colspan="5" class="td-muted">No users found.</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
-        <div class="stat-value">{{ s.value }}</div>
-        <div class="stat-sub"
-             :class="{ 'sub-up': s.trend === 'up', 'sub-alert': s.trend === 'alert' }">
-          {{ s.sub }}
-        </div>
-      </div>
-    </div>
 
-    <!-- Two-col grid -->
-    <div class="dash-grid">
-
-      <!-- Recent tenants table -->
-      <div class="card">
-        <div class="card-hdr">
-          <span class="card-title">Recent Tenants</span>
-          <button class="card-link" @click="emit('navigate', 'tenants')">View all →</button>
-        </div>
-        <table class="mini-table">
-          <thead>
-            <tr><th>Tenant</th><th>Room</th><th>Status</th><th>Balance</th></tr>
-          </thead>
-          <tbody>
-            <tr v-for="t in tenants.slice(0, 6)" :key="t.id">
-              <td>
-                <div class="user-cell">
-                  <div class="user-av">{{ t.name.split(' ').map((n: string) => n[0]).join('').slice(0,2) }}</div>
-                  <span>{{ t.name }}</span>
+        <div class="side-col">
+          <div class="card">
+            <div class="card-hdr">
+              <span class="card-title">Audit log</span>
+              <button type="button" class="card-link" @click="emit('full-audit')">Full log</button>
+            </div>
+            <ul class="audit-list">
+              <li v-for="(a, i) in auditEntries" :key="i" class="audit-item">
+                <div class="audit-icon" :style="{ background: auditIconBg(a.kind) }">{{ auditGlyph(a.kind) }}</div>
+                <div class="audit-body">
+                  <p class="audit-text">{{ a.text }}</p>
+                  <span class="audit-time">{{ a.time }}</span>
                 </div>
-              </td>
-              <td>{{ t.room }}</td>
-              <td><span class="badge" :class="statusClass(t.status)">{{ t.status }}</span></td>
-              <td :class="{ 'text-red': (t.balance ?? 0) > 0 }">
-                {{ (t.balance ?? 0) > 0 ? '₱' + t.balance.toLocaleString() : '—' }}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+              </li>
+            </ul>
+          </div>
 
-      <!-- Activity feed -->
-      <div class="card">
-        <div class="card-hdr">
-          <span class="card-title">Recent Activity</span>
-          <span class="card-sub">Today</span>
-        </div>
-        <div class="activity-list">
-          <div v-for="a in recentActivity" :key="a.action" class="activity-item">
-            <div class="activity-icon" :style="{ background: a.color }">{{ a.icon }}</div>
-            <div class="activity-body">
-              <div class="activity-text">{{ a.action }}</div>
-              <div class="activity-time">{{ a.time }}</div>
+          <div class="card">
+            <div class="card-hdr">
+              <span class="card-title">System settings</span>
+            </div>
+            <div class="settings-list">
+              <label class="setting-row">
+                <div class="setting-text">
+                  <span class="setting-name">Maintenance mode</span>
+                  <span class="setting-desc">Blocks all non-admin logins</span>
+                </div>
+                <input v-model="maintenanceMode" type="checkbox" class="toggle" role="switch">
+              </label>
+              <label class="setting-row">
+                <div class="setting-text">
+                  <span class="setting-name">New registrations</span>
+                  <span class="setting-desc">Allow public sign-ups</span>
+                </div>
+                <input v-model="newRegistrations" type="checkbox" class="toggle" role="switch">
+              </label>
+              <label class="setting-row">
+                <div class="setting-text">
+                  <span class="setting-name">Email notifications</span>
+                  <span class="setting-desc">OTP + payment reminders</span>
+                </div>
+                <input v-model="emailNotifications" type="checkbox" class="toggle" role="switch">
+              </label>
+              <div class="setting-row static">
+                <div class="setting-text">
+                  <span class="setting-name">Auto-delete inactive</span>
+                  <span class="setting-desc">After 90 days of no login</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
+    </template>
 
-    <!-- Room status strip -->
-    <div class="card mt-16">
-      <div class="card-hdr">
-        <span class="card-title">Room Status Overview</span>
-        <button class="card-link" @click="emit('navigate', 'rooms')">Manage rooms →</button>
-      </div>
-      <div class="status-legend">
-        <span class="legend-dot dot-occupied"/>  <span class="legend-label">Occupied</span>
-        <span class="legend-dot dot-vacant"/>     <span class="legend-label">Vacant</span>
-        <span class="legend-dot dot-reserved"/>   <span class="legend-label">Reserved</span>
-        <span class="legend-dot dot-maint"/>      <span class="legend-label">Maintenance</span>
-      </div>
-      <div class="room-strip">
-        <div v-for="r in rooms" :key="r.id"
-             class="room-chip" :class="chipClass(r.status)"
-             :title="`${r.type} · ₱${r.rate?.toLocaleString()}/mo · ${r.occupants}`">
-          <span class="chip-num">{{ r.number }}</span>
-          <span class="chip-type">{{ r.type }}</span>
-          <span class="chip-rate">₱{{ r.rate?.toLocaleString() }}</span>
+    <!-- Full-width user accounts (sidebar: User accounts) -->
+    <template v-else>
+      <div class="section-hdr">
+        <div>
+          <h1 class="section-title">User accounts</h1>
+          <p class="section-sub">Search, filter, and manage roles and access</p>
         </div>
       </div>
-    </div>
-
+      <div class="card accounts-card flat">
+        <div class="filters">
+          <input
+            v-model="search"
+            type="search"
+            class="search-input"
+            placeholder="Search by name or email..."
+            aria-label="Search users"
+          >
+          <select v-model="roleFilter" class="filter-select" aria-label="Filter by role">
+            <option value="all">All roles</option>
+            <option value="ROLE_ADMIN">Admin</option>
+            <option value="ROLE_MANAGER">Manager</option>
+            <option value="ROLE_MAINTENANCE">Maintenance</option>
+            <option value="ROLE_TENANT">Tenant</option>
+          </select>
+          <select v-model="statusFilter" class="filter-select" aria-label="Filter by status">
+            <option value="all">All status</option>
+            <option value="ACTIVE">Active</option>
+            <option value="SUSPENDED">Suspended</option>
+            <option value="INACTIVE">Inactive</option>
+          </select>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>User</th>
+                <th>Role</th>
+                <th>Status</th>
+                <th>Last login</th>
+                <th class="th-actions">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-if="loading">
+                <td colspan="5" class="td-muted">Loading users...</td>
+              </tr>
+              <tr v-for="u in filteredUsers" :key="u.id">
+                <td>
+                  <div class="user-cell">
+                    <div class="user-av">{{ u.name.split(/\s+/).map(n => n[0]).join('').slice(0, 2) }}</div>
+                    <div class="user-text">
+                      <span class="user-name">{{ u.name }}</span>
+                      <span class="user-email">{{ u.email }}</span>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <span class="pill" :class="roleBadgeClass(u.role)">{{ roleLabel(u.role) }}</span>
+                </td>
+                <td>
+                  <span class="pill" :class="statusBadgeClass(u.status)">{{ u.status.charAt(0) + u.status.slice(1).toLowerCase() }}</span>
+                </td>
+                <td class="td-muted">{{ u.lastLogin }}</td>
+                <td>
+                  <div class="actions">
+                    <template v-if="u.status === 'ACTIVE'">
+                      <button type="button" class="link-btn" @click="emit('change-role', u)">Edit role</button>
+                      <button type="button" class="link-btn danger" @click="emit('suspend-user', u)">Suspend</button>
+                    </template>
+                    <template v-else-if="u.status === 'SUSPENDED'">
+                      <button type="button" class="link-btn" @click="emit('restore-user', u)">Restore</button>
+                      <button type="button" class="link-btn danger" @click="emit('delete-user', u)">Delete</button>
+                    </template>
+                    <template v-else>
+                      <button type="button" class="link-btn danger" @click="emit('delete-user', u)">Delete</button>
+                    </template>
+                  </div>
+                </td>
+              </tr>
+              <tr v-if="!loading && filteredUsers.length === 0">
+                <td colspan="5" class="td-muted">No users found.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </template>
   </section>
 </template>
 
 <style scoped>
-/* ── Section ──────────────────────────────────────────────────────────────── */
 .section-hdr {
-  display: flex; align-items: flex-start; justify-content: space-between;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
   margin-bottom: 22px;
 }
-.section-title { font-size: 22px; font-weight: 700; color: #160d27; }
-.section-sub   { font-size: 13px; color: #9ca3af; margin-top: 2px; }
-.hdr-actions   { display: flex; gap: 8px; }
-
-.btn-outline {
-  padding: 8px 16px; border-radius: 9px;
-  border: 1.5px solid #e0ddf7; background: #fff;
-  color: #374151; font-size: 13px; font-weight: 500; cursor: pointer;
-  font-family: inherit; transition: border-color .15s;
+.section-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: #160d27;
 }
-.btn-outline:hover { border-color: #ae68fa; }
-
-.btn-primary-sm {
-  padding: 8px 16px; border-radius: 9px; border: none;
-  background: linear-gradient(90deg, #ae68fa, #f1966e);
-  color: #fff; font-size: 13px; font-weight: 600;
-  cursor: pointer; font-family: inherit; transition: opacity .15s;
+.section-sub {
+  font-size: 13px;
+  color: #9ca3af;
+  margin-top: 2px;
 }
-.btn-primary-sm:hover { opacity: .88; }
 
-/* ── Stats ────────────────────────────────────────────────────────────────── */
 .stats-grid {
-  display: grid; grid-template-columns: repeat(4, 1fr);
-  gap: 14px; margin-bottom: 18px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 18px;
 }
 .stat-card {
-  background: #fff; border: 1px solid #e0ddf7; border-radius: 14px;
-  padding: 16px 18px; box-shadow: 0 2px 12px rgba(149,132,226,.07);
-  transition: box-shadow .2s;
+  background: #fff;
+  border: 1px solid #e0ddf7;
+  border-radius: 14px;
+  padding: 16px 18px;
+  box-shadow: 0 2px 12px rgba(149, 132, 226, 0.07);
 }
-.stat-card:hover { box-shadow: 0 4px 20px rgba(149,132,226,.15); }
 .stat-top {
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin-bottom: 10px;
 }
-.stat-label { font-size: 12px; color: #9ca3af; font-weight: 500; }
-.stat-icon  {
-  width: 30px; height: 30px; border-radius: 8px;
-  display: flex; align-items: center; justify-content: center;
+.stat-label {
+  font-size: 12px;
+  color: #9ca3af;
+  font-weight: 500;
 }
-.stat-value { font-size: 26px; font-weight: 800; color: #160d27; letter-spacing: -.5px; }
-.stat-sub   { font-size: 12px; margin-top: 3px; color: #9ca3af; }
-.sub-up     { color: #22c55e; }
-.sub-alert  { color: #ef4444; }
+.stat-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.stat-value {
+  font-size: 26px;
+  font-weight: 800;
+  color: #160d27;
+  letter-spacing: -0.5px;
+}
+.stat-sub {
+  font-size: 12px;
+  margin-top: 3px;
+  color: #9ca3af;
+}
+.sub-up {
+  color: #22c55e;
+}
+.sub-alert {
+  color: #ef4444;
+}
 
-/* ── Cards ────────────────────────────────────────────────────────────────── */
-.dash-grid {
-  display: grid; grid-template-columns: 1.5fr 1fr;
-  gap: 16px; margin-bottom: 0;
+.dash-split {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 16px;
+  align-items: start;
 }
+.side-col {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
 .card {
-  background: #fff; border: 1px solid #e0ddf7; border-radius: 14px;
-  padding: 18px; box-shadow: 0 2px 12px rgba(149,132,226,.06);
+  background: #fff;
+  border: 1px solid #e0ddf7;
+  border-radius: 14px;
+  padding: 18px;
+  box-shadow: 0 2px 12px rgba(149, 132, 226, 0.06);
 }
-.mt-16 { margin-top: 16px; }
-
+.accounts-card.flat {
+  margin-top: 0;
+}
 .card-hdr {
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin-bottom: 14px;
 }
-.card-title { font-size: 13px; font-weight: 700; color: #160d27; }
-.card-sub   { font-size: 11px; color: #c4b8e8; }
-.card-link  {
-  background: none; border: none; font-size: 12px; color: #ae68fa;
-  cursor: pointer; font-weight: 600; font-family: inherit; padding: 0;
-  transition: color .15s;
+.card-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #160d27;
 }
-.card-link:hover { color: #f1966e; }
+.card-link {
+  background: none;
+  border: none;
+  font-size: 12px;
+  color: #ae68fa;
+  cursor: pointer;
+  font-weight: 600;
+  font-family: inherit;
+  padding: 0;
+}
+.card-link:hover {
+  color: #f1966e;
+}
 
-/* ── Mini table ───────────────────────────────────────────────────────────── */
-.mini-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-.mini-table th {
-  text-align: left; padding: 6px 8px; color: #c4b8e8;
-  font-weight: 600; font-size: 10px; text-transform: uppercase; letter-spacing: .05em;
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.search-input {
+  flex: 1;
+  min-width: 200px;
+  padding: 9px 12px;
+  border: 1px solid #e0ddf7;
+  border-radius: 9px;
+  font-size: 13px;
+  font-family: inherit;
+  background: #faf7ff;
+}
+.search-input::placeholder {
+  color: #c4b8e8;
+}
+.filter-select {
+  padding: 9px 12px;
+  border: 1px solid #e0ddf7;
+  border-radius: 9px;
+  font-size: 13px;
+  font-family: inherit;
+  background: #fff;
+  color: #374151;
+  cursor: pointer;
+}
+
+.table-wrap {
+  overflow-x: auto;
+  margin: 0 -4px;
+}
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.data-table th {
+  text-align: left;
+  padding: 8px 10px;
+  color: #c4b8e8;
+  font-weight: 600;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
   border-bottom: 1px solid #f3f0fb;
 }
-.mini-table td { padding: 8px 8px; color: #374151; border-bottom: 1px solid #f9f7ff; }
-.mini-table tr:last-child td { border-bottom: none; }
-.mini-table tr:hover td { background: #faf7ff; }
+.th-actions {
+  text-align: right;
+}
+.data-table td {
+  padding: 10px;
+  border-bottom: 1px solid #f9f7ff;
+  vertical-align: middle;
+}
+.data-table tr:last-child td {
+  border-bottom: none;
+}
+.data-table tr:hover td {
+  background: #faf7ff;
+}
 
-.user-cell { display: flex; align-items: center; gap: 8px; }
+.user-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 .user-av {
-  width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  flex-shrink: 0;
   background: linear-gradient(135deg, #ae68fa, #f1966e);
-  display: flex; align-items: center; justify-content: center;
-  font-size: 9px; font-weight: 700; color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
 }
-.text-red { color: #ef4444; font-weight: 600; }
-
-/* ── Activity ─────────────────────────────────────────────────────────────── */
-.activity-list { display: flex; flex-direction: column; gap: 12px; }
-.activity-item { display: flex; gap: 10px; align-items: flex-start; }
-.activity-icon {
-  width: 32px; height: 32px; border-radius: 9px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 14px; flex-shrink: 0;
+.user-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
 }
-.activity-body { flex: 1; }
-.activity-text { font-size: 12.5px; color: #374151; line-height: 1.45; }
-.activity-time { font-size: 11px; color: #c4b8e8; margin-top: 2px; }
-
-/* ── Room strip ───────────────────────────────────────────────────────────── */
-.status-legend {
-  display: flex; align-items: center; gap: 6px;
-  margin-bottom: 12px; font-size: 11px; color: #9ca3af;
+.user-name {
+  font-weight: 600;
+  color: #160d27;
 }
-.legend-dot {
-  width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+.user-email {
+  font-size: 11px;
+  color: #9ca3af;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.dot-occupied { background: #ae68fa; }
-.dot-vacant   { background: #22c55e; }
-.dot-reserved { background: #f59e0b; }
-.dot-maint    { background: #ef4444; }
-.legend-label { margin-right: 8px; }
-
-.room-strip { display: flex; flex-wrap: wrap; gap: 8px; }
-.room-chip {
-  display: flex; flex-direction: column; align-items: center;
-  padding: 8px 14px; border-radius: 11px;
-  border: 1.5px solid transparent; gap: 2px; min-width: 74px;
-  transition: transform .15s, box-shadow .15s; cursor: default;
+.td-muted {
+  color: #6b7280;
+  white-space: nowrap;
 }
-.room-chip:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,.08); }
-.chip-num  { font-size: 13px; font-weight: 800; }
-.chip-type { font-size: 9px; opacity: .65; text-transform: uppercase; letter-spacing: .04em; }
-.chip-rate { font-size: 11px; font-weight: 600; margin-top: 1px; }
 
-.chip-occupied { background: rgba(174,104,250,.1);  border-color: #ae68fa; color: #7c3aed; }
-.chip-vacant   { background: rgba(34,197,94,.1);    border-color: #22c55e; color: #15803d; }
-.chip-maint    { background: rgba(239,68,68,.1);    border-color: #ef4444; color: #b91c1c; }
-.chip-reserved { background: rgba(245,158,11,.1);   border-color: #f59e0b; color: #b45309; }
-
-/* ── Badges ───────────────────────────────────────────────────────────────── */
-.badge {
-  display: inline-block; font-size: 10px; padding: 3px 9px;
-  border-radius: 999px; font-weight: 600; white-space: nowrap;
+.pill {
+  display: inline-block;
+  font-size: 10px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-weight: 600;
 }
-.badge-active   { background: #dcfce7; color: #166534; }
-.badge-pending  { background: #fef3c7; color: #92400e; }
-.badge-inactive { background: #f1f5f9; color: #64748b; }
-.badge-moved    { background: #f3e8ff; color: #7e22ce; }
-.badge-occupied { background: rgba(174,104,250,.12); color: #7c3aed; }
-.badge-vacant   { background: #dcfce7; color: #15803d; }
-.badge-maint    { background: #fee2e2; color: #991b1b; }
-.badge-reserved { background: #fef3c7; color: #b45309; }
+.role-admin {
+  background: #fef9c3;
+  color: #854d0e;
+}
+.role-manager {
+  background: #ccfbf1;
+  color: #0f766e;
+}
+.role-maintenance {
+  background: #e0f2fe;
+  color: #075985;
+}
+.role-tenant {
+  background: #ede9fe;
+  color: #6d28d9;
+}
+.st-active {
+  background: #dcfce7;
+  color: #166534;
+}
+.st-suspended {
+  background: #fee2e2;
+  color: #991b1b;
+}
+.st-inactive {
+  background: #f1f5f9;
+  color: #64748b;
+}
 
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  justify-content: flex-end;
+}
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #ae68fa;
+  cursor: pointer;
+  font-family: inherit;
+}
+.link-btn:hover {
+  text-decoration: underline;
+}
+.link-btn.danger {
+  color: #ef4444;
+}
+
+.audit-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.audit-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.audit-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: #374151;
+  flex-shrink: 0;
+}
+.audit-text {
+  margin: 0;
+  font-size: 12px;
+  color: #374151;
+  line-height: 1.45;
+}
+.audit-time {
+  font-size: 11px;
+  color: #c4b8e8;
+  margin-top: 2px;
+  display: block;
+}
+
+.settings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid #f3f0fb;
+  cursor: pointer;
+}
+.setting-row:last-child {
+  border-bottom: none;
+}
+.setting-row.static {
+  cursor: default;
+}
+.setting-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.setting-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #160d27;
+}
+.setting-desc {
+  font-size: 11px;
+  color: #9ca3af;
+}
+
+.toggle {
+  appearance: none;
+  width: 40px;
+  height: 22px;
+  border-radius: 999px;
+  background: #e5e7eb;
+  position: relative;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.2s;
+}
+.toggle::after {
+  content: '';
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  top: 2px;
+  left: 2px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  transition: transform 0.2s;
+}
+.toggle:checked {
+  background: linear-gradient(90deg, #ae68fa, #f1966e);
+}
+.toggle:checked::after {
+  transform: translateX(18px);
+}
+
+@media (max-width: 1200px) {
+  .dash-split {
+    grid-template-columns: 1fr;
+  }
+  .side-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+}
+@media (max-width: 900px) {
+  .side-col {
+    grid-template-columns: 1fr;
+  }
+}
 @media (max-width: 1100px) {
-  .stats-grid { grid-template-columns: repeat(2, 1fr); }
-  .dash-grid  { grid-template-columns: 1fr; }
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 @media (max-width: 480px) {
-  .stats-grid { grid-template-columns: 1fr; }
-  .section-hdr { flex-direction: column; gap: 12px; }
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+  .actions {
+    justify-content: flex-start;
+  }
 }
 </style>

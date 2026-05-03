@@ -18,7 +18,7 @@ function logout() {
     <header class="topbar">
       <div class="topbar-brand">
         <img :src="logo" alt="ResidEase" class="brand-logo" />
-        <span class="brand-text">Boarding House Management System</span>
+        <span class="brand-text">ResidEase</span>
       </div>
       <div class="topbar-right">
         <div class="avatar">{{ auth.user?.username?.[0]?.toUpperCase() }}</div>
@@ -40,7 +40,7 @@ function logout() {
       <div class="welcome-card">
         <div class="welcome-icon">🏠</div>
         <h1>Welcome back, <span class="highlight">{{ auth.user?.username }}</span>!</h1>
-        <p>You're logged in to the Boarding House Management System.</p>
+        <p>You're logged in to ResidEase.</p>
       </div>
 
       <!-- Quick nav cards -->

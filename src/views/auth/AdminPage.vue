@@ -1,127 +1,261 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../../stores/auth'
 
-import AdminSidebar   from '@/components/admin_layout/AdminSidebar.vue'
-import AdminTopbar    from '@/components/admin_layout/AdminTopbar.vue'
+import AdminSidebar from '@/components/admin_layout/AdminSidebar.vue'
+import AdminTopbar from '@/components/admin_layout/AdminTopbar.vue'
 import AdminDashboard from '@/components/admin_layout/AdminDashboard.vue'
-import AdminTenants   from '@/components/admin_layout/AdminTenants.vue'
-import AdminRooms     from '@/components/admin_layout/AdminRooms.vue'
+import { adminService, type AdminRole, type AdminStatsResponse, type AdminStatus, type AdminUserSummary } from '../../services/adminService'
+
+type AdminUserRow = {
+  id: string
+  name: string
+  email: string
+  role: AdminRole
+  status: AdminStatus
+  lastLogin: string
+}
 
 const router = useRouter()
-const auth   = useAuthStore()
+const auth = useAuthStore()
 
-// ─── Layout state ─────────────────────────────────────────────────────────────
-const sidebarOpen   = ref(true)
+const sidebarOpen = ref(true)
 const activeSection = ref('dashboard')
+const loading = ref(false)
+const error = ref('')
+const users = ref<AdminUserRow[]>([])
+const stats = ref<AdminStatsResponse | null>(null)
+const filters = ref<{ search: string; role: 'all' | AdminRole; status: 'all' | AdminStatus }>({
+  search: '',
+  role: 'all',
+  status: 'all',
+})
 
-function navigate(section: string) { activeSection.value = section }
+function navigate(section: string) {
+  activeSection.value = section
+}
 
 function handleLogout() {
   auth.logout()
   router.push('/')
 }
 
-// ─── Mock data (replace with API calls) ──────────────────────────────────────
-const tenants = ref([
-  { id: 1, name: 'Ana Reyes',      room: '2A',    status: 'ACTIVE',   balance: 0,    move_in: 'Jan 3, 2025',  phone: '09171234567', email: 'ana@email.com' },
-  { id: 2, name: 'Carlo Santos',   room: '3B',    status: 'ACTIVE',   balance: 4500, move_in: 'Feb 10, 2025', phone: '09281234567', email: 'carlo@email.com' },
-  { id: 3, name: 'Diana Lopez',    room: '—',     status: 'PENDING',  balance: 0,    move_in: '—',            phone: '09391234567', email: 'diana@email.com' },
-  { id: 4, name: 'Erick Bueno',    room: 'GF-01', status: 'ACTIVE',   balance: 9500, move_in: 'Dec 1, 2024',  phone: '09451234567', email: 'erick@email.com' },
-  { id: 5, name: 'Faye Dela Cruz', room: '4D',    status: 'INACTIVE', balance: 0,    move_in: 'Mar 5, 2025',  phone: '09561234567', email: 'faye@email.com' },
-  { id: 6, name: 'Gerald Tan',     room: '2F',    status: 'ACTIVE',   balance: 5500, move_in: 'Nov 20, 2024', phone: '09671234567', email: 'gerald@email.com' },
-])
+function toRoleLabel(role: AdminRole): string {
+  const map: Record<AdminRole, string> = {
+    ROLE_ADMIN: 'Admin',
+    ROLE_MANAGER: 'Manager',
+    ROLE_MAINTENANCE: 'Maintenance',
+    ROLE_TENANT: 'Tenant',
+  }
+  return map[role] ?? 'Tenant'
+}
 
-const rooms = ref([
-  { id: 1, number: '2A',    type: 'SINGLE',    floor: '2nd', status: 'OCCUPIED',    rate: 4500, occupants: '1/1', amenities: 'WiFi, AC, CR own' },
-  { id: 2, number: '3B',    type: 'DOUBLE',    floor: '3rd', status: 'OCCUPIED',    rate: 4200, occupants: '2/2', amenities: 'WiFi, Fan, CR shared' },
-  { id: 3, number: '1C',    type: 'STUDIO',    floor: 'GF',  status: 'RESERVED',   rate: 6000, occupants: '0/1', amenities: 'WiFi, AC, Ref' },
-  { id: 4, number: '4D',    type: 'DORMITORY', floor: '4th', status: 'OCCUPIED',    rate: 2800, occupants: '3/6', amenities: 'WiFi, Laundry, CCTV' },
-  { id: 5, number: 'GF-01', type: 'SUITE',     floor: 'GF',  status: 'OCCUPIED',    rate: 9500, occupants: '1/2', amenities: 'WiFi, AC, CR own, Ref, Parking' },
-  { id: 6, number: '2F',    type: 'DOUBLE',    floor: '2nd', status: 'MAINTENANCE', rate: 5500, occupants: '0/2', amenities: 'AC, CR own, Parking' },
-  { id: 7, number: '5A',    type: 'SINGLE',    floor: '5th', status: 'VACANT',      rate: 3800, occupants: '0/1', amenities: 'WiFi, Fan' },
-])
+function formatLastLogin(value?: string | null): string {
+  if (!value) return 'Never'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  const diffMs = Date.now() - date.getTime()
+  const mins = Math.floor(diffMs / 60000)
+  if (mins < 1) return 'Just now'
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  const days = Math.floor(hrs / 24)
+  return `${days}d ago`
+}
+
+function mapUser(u: AdminUserSummary): AdminUserRow {
+  return {
+    id: u.id,
+    name: u.full_name || u.username,
+    email: u.email,
+    role: u.role,
+    status: u.status,
+    lastLogin: formatLastLogin(u.last_login),
+  }
+}
+
+async function fetchAdminData() {
+  loading.value = true
+  error.value = ''
+  try {
+    const params: {
+      page: number
+      limit: number
+      search?: string
+      role?: AdminRole
+      status?: AdminStatus
+    } = { page: 1, limit: 100 }
+
+    if (filters.value.search.trim()) params.search = filters.value.search.trim()
+    if (filters.value.role !== 'all') params.role = filters.value.role
+    if (filters.value.status !== 'all') params.status = filters.value.status
+
+    const [usersRes, statsRes] = await Promise.all([
+      adminService.listUsers(params),
+      adminService.getStats(),
+    ])
+    users.value = usersRes.users.map(mapUser)
+    stats.value = statsRes
+  } catch (e: any) {
+    error.value = e?.message ?? 'Failed to load admin data.'
+  } finally {
+    loading.value = false
+  }
+}
+
+function onExportLogs() {
+  navigate('audit')
+}
+
+function onViewAllUsers() {
+  navigate('users')
+}
+
+function onFullAudit() {
+  navigate('audit')
+}
+
+async function onSuspendUser(user: AdminUserRow) {
+  if (!window.confirm(`Suspend ${user.name}?`)) return
+  await adminService.updateStatus(user.id, 'SUSPENDED')
+  await fetchAdminData()
+}
+
+async function onRestoreUser(user: AdminUserRow) {
+  if (!window.confirm(`Restore ${user.name} to ACTIVE status?`)) return
+  await adminService.updateStatus(user.id, 'ACTIVE')
+  await fetchAdminData()
+}
+
+async function onDeleteUser(user: AdminUserRow) {
+  if (!window.confirm(`Delete ${user.name}? This cannot be undone.`)) return
+  await adminService.deleteUser(user.id)
+  await fetchAdminData()
+}
+
+async function onChangeRole(user: AdminUserRow) {
+  const current = toRoleLabel(user.role)
+  const nextRaw = window.prompt(
+    `Change role for ${user.name}. Current: ${current}\nType one: admin, manager, maintenance, tenant`,
+    current.toLowerCase(),
+  )
+  if (!nextRaw) return
+
+  const normalized = nextRaw.trim().toLowerCase()
+  const roleMap: Record<string, AdminRole> = {
+    admin: 'ROLE_ADMIN',
+    manager: 'ROLE_MANAGER',
+    maintenance: 'ROLE_MAINTENANCE',
+    tenant: 'ROLE_TENANT',
+  }
+  const nextRole = roleMap[normalized]
+  if (!nextRole) {
+    window.alert('Invalid role. Use: admin, manager, maintenance, tenant')
+    return
+  }
+
+  await adminService.updateRole(user.id, nextRole)
+  await fetchAdminData()
+}
+
+function onFiltersChange(payload: { search: string; role: 'all' | AdminRole; status: 'all' | AdminStatus }) {
+  filters.value = payload
+  void fetchAdminData()
+}
+
+onMounted(() => {
+  void fetchAdminData()
+})
 </script>
 
 <template>
   <div class="admin-shell">
-
-    <!-- Sidebar -->
     <AdminSidebar
       :active-section="activeSection"
       :sidebar-open="sidebarOpen"
       :username="auth.user?.username"
       @navigate="navigate"
       @logout="handleLogout"
-      @update:sidebar-open="(v: boolean) => sidebarOpen = v"
     />
 
-    <!-- Right pane -->
     <div class="main-area">
-
-      <!-- Topbar -->
       <AdminTopbar
         :active-section="activeSection"
         :username="auth.user?.username"
         :notif-count="3"
         @toggle-sidebar="sidebarOpen = !sidebarOpen"
+        @export-logs="onExportLogs"
       />
 
-      <!-- Scrollable content -->
       <main class="content-area">
-
+        <div v-if="error" class="error-banner">{{ error }}</div>
         <AdminDashboard
           v-if="activeSection === 'dashboard'"
-          :tenants="tenants"
-          :rooms="rooms"
-          @navigate="navigate"
+          variant="dashboard"
+          :users="users"
+          :stats="stats"
+          :loading="loading"
+          @view-all-users="onViewAllUsers"
+          @full-audit="onFullAudit"
+          @filters-change="onFiltersChange"
+          @suspend-user="onSuspendUser"
+          @restore-user="onRestoreUser"
+          @delete-user="onDeleteUser"
+          @change-role="onChangeRole"
         />
 
-        <AdminTenants
-          v-else-if="activeSection === 'tenants'"
-          :tenants="tenants"
-          @add="() => {}"
-          @view="() => {}"
-          @edit="() => {}"
-          @remove="() => {}"
+        <AdminDashboard
+          v-else-if="activeSection === 'users'"
+          variant="users-full"
+          :users="users"
+          :stats="stats"
+          :loading="loading"
+          @view-all-users="onViewAllUsers"
+          @full-audit="onFullAudit"
+          @filters-change="onFiltersChange"
+          @suspend-user="onSuspendUser"
+          @restore-user="onRestoreUser"
+          @delete-user="onDeleteUser"
+          @change-role="onChangeRole"
         />
 
-        <AdminRooms
-          v-else-if="activeSection === 'rooms'"
-          :rooms="rooms"
-          @add="() => {}"
-          @view="() => {}"
-          @edit="() => {}"
-        />
-
-        <!-- Placeholder sections -->
         <section v-else class="section">
           <div class="section-hdr">
             <div>
               <h1 class="section-title">
-                {{ {
-                  leases:      'Lease Management',
-                  billing:     'Billing & Payments',
-                  maintenance: 'Maintenance',
-                  users:       'User Accounts',
-                  reports:     'Reports',
-                  settings:    'System Settings',
-                }[activeSection] ?? activeSection }}
+                {{
+                  {
+                    roles: 'Roles & permissions',
+                    audit: 'Audit logs',
+                    health: 'System health',
+                    settings: 'System settings',
+                  }[activeSection] ?? activeSection
+                }}
               </h1>
-              <p class="section-sub">This module is under construction.</p>
+              <p class="section-sub">Connect this view to your admin API when ready.</p>
             </div>
           </div>
           <div class="placeholder-card">
             <div class="ph-icon">
-              {{ { leases: '📋', billing: '💳', maintenance: '🔧', users: '👥', reports: '📊', settings: '⚙️' }[activeSection] ?? '🚧' }}
+              {{
+                {
+                  roles: '🛡️',
+                  audit: '📋',
+                  health: '💓',
+                  settings: '⚙️',
+                }[activeSection] ?? '🚧'
+              }}
             </div>
-            <h3>Coming soon</h3>
-            <p>This section is being built. Check back soon.</p>
-            <button class="back-btn" @click="navigate('dashboard')">← Back to Dashboard</button>
+            <h3>Module placeholder</h3>
+            <p>
+              This area maps to controllers such as <code>admin</code>, <code>auth</code>, and <code>config</code> on
+              your backend.
+            </p>
+            <button class="back-btn" @click="navigate('dashboard')">← Back to dashboard</button>
           </div>
         </section>
-
       </main>
     </div>
   </div>
@@ -129,45 +263,116 @@ const rooms = ref([
 
 <style scoped>
 .admin-shell {
-  display: flex; height: 100vh; width: 100%;
+  display: flex;
+  height: 100vh;
+  width: 100%;
   background: #f3f0fb;
   font-family: 'Inter', system-ui, sans-serif;
   overflow: hidden;
 }
 .main-area {
-  flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
 }
 .content-area {
-  flex: 1; overflow-y: auto; padding: 28px 32px; background: #f3f0fb;
+  flex: 1;
+  overflow-y: auto;
+  padding: 28px 32px;
+  background: #f3f0fb;
 }
-.content-area::-webkit-scrollbar { width: 5px; }
-.content-area::-webkit-scrollbar-track { background: transparent; }
-.content-area::-webkit-scrollbar-thumb { background: #e0ddf7; border-radius: 5px; }
+.content-area::-webkit-scrollbar {
+  width: 5px;
+}
+.content-area::-webkit-scrollbar-track {
+  background: transparent;
+}
+.content-area::-webkit-scrollbar-thumb {
+  background: #e0ddf7;
+  border-radius: 5px;
+}
+.error-banner {
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+  font-size: 12px;
+}
 
 .section-hdr {
-  display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 22px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 22px;
 }
-.section-title { font-size: 22px; font-weight: 700; color: #160d27; }
-.section-sub   { font-size: 13px; color: #9ca3af; margin-top: 2px; }
+.section-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: #160d27;
+}
+.section-sub {
+  font-size: 13px;
+  color: #9ca3af;
+  margin-top: 2px;
+}
 
 .placeholder-card {
-  background: #fff; border: 1.5px dashed #e0ddf7; border-radius: 18px;
-  padding: 60px 40px; display: flex; flex-direction: column;
-  align-items: center; gap: 12px; text-align: center;
+  background: #fff;
+  border: 1.5px dashed #e0ddf7;
+  border-radius: 18px;
+  padding: 60px 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
 }
-.ph-icon { font-size: 52px; }
-.placeholder-card h3 { font-size: 18px; color: #374151; font-weight: 700; margin: 0; }
-.placeholder-card p  { font-size: 13px; color: #9ca3af; max-width: 360px; margin: 0; }
+.ph-icon {
+  font-size: 52px;
+}
+.placeholder-card h3 {
+  font-size: 18px;
+  color: #374151;
+  font-weight: 700;
+  margin: 0;
+}
+.placeholder-card p {
+  font-size: 13px;
+  color: #9ca3af;
+  max-width: 420px;
+  margin: 0;
+}
+.placeholder-card code {
+  font-size: 12px;
+  background: #f3f0fb;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
 
 .back-btn {
-  margin-top: 8px; padding: 9px 20px; border-radius: 9px; border: none;
+  margin-top: 8px;
+  padding: 9px 20px;
+  border-radius: 9px;
+  border: none;
   background: linear-gradient(90deg, #ae68fa, #f1966e);
-  color: #fff; font-size: 13px; font-weight: 600;
-  cursor: pointer; font-family: inherit; transition: opacity .15s;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: opacity 0.15s;
 }
-.back-btn:hover { opacity: .88; }
+.back-btn:hover {
+  opacity: 0.88;
+}
 
 @media (max-width: 768px) {
-  .content-area { padding: 20px 16px; }
+  .content-area {
+    padding: 20px 16px;
+  }
 }
 </style>
