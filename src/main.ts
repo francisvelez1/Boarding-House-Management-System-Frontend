@@ -24,3 +24,4 @@ createApp(App)
   .use(VueQueryPlugin, { queryClient })
   .use(Toast, { position: 'top-right', timeout: 3000 })
   .mount('#app')
+

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import type { AdminRole, AdminStatus, AdminStatsResponse } from '../../services/adminService'
+import Card from '../TenantsUI_Components/Card.vue'
 
 export type AdminUserRow = {
   id: string
@@ -180,6 +181,7 @@ function auditGlyph(kind: (typeof auditEntries)[number]['kind']) {
           <div class="stat-sub">flagged user</div>
         </div>
       </div>
+      
 
       <div class="dash-split">
         <div class="card accounts-card">

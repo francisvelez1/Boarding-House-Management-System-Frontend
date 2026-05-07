@@ -83,9 +83,14 @@ export interface LoginCredentials {
   password:          string
 }
 export interface LoginResponse {
+  message:       string
   username:      string
   access_token:  string
   refresh_token: string
+  token_type:    string
+  role:          string
+  id:            string
+  email:         string
 }
 export interface RegisterPayload {
   username:    string

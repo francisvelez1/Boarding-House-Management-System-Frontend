@@ -31,6 +31,13 @@ const router = createRouter({
       component: () => import('../views/auth/AdminPage.vue'),
       meta: { requiresAuth: true, requiresAdmin: true },
     },
+
+    {
+      path: '/tenant/dashboard',
+      name: 'TenantPage',
+      component: () => import('../views/auth/TenantPage.vue'),
+      meta: { requiresAuth: true, requiresTenant: true },
+    },
     {
       path: '/manager',
       name: 'Manager',
@@ -46,23 +53,29 @@ const router = createRouter({
 // ── Navigation Guard ──────────────────────────────────────────────────────────
 router.beforeEach((to) => {
   const auth       = useAuthStore()
-  const isLoggedIn = auth.isAuthenticated  
-  const isAdmin    = auth.isAdmin          
-  const isManager  = auth.isManager        
+  const userRole   = auth.user?.role ?? ''
+  const isLoggedIn = auth.isAuthenticated
+ 
+  const isAdmin  = userRole === 'ROLE_ADMIN'
+  const isTenant = userRole === 'ROLE_TENANT'
+  const isManager = userRole === 'ROLE_MANAGER'
+
+  if (to.path === '/tenant/dashboard' && isTenant) return true
+  if (to.path === '/admin'            && isAdmin)  return true
+  if (to.path === '/manager'          && isManager) return true   
 
   // 1. Redirect logged-in users away from guest page based on their role
-  if (isLoggedIn && to.path === '/') {
+    if (isLoggedIn && to.path === '/') {
+    if (isTenant)  return { path: '/tenant/dashboard' }
     if (isAdmin)   return { path: '/admin' }
     if (isManager) return { path: '/manager' }
     return { path: '/home' }
   }
 
-  // 2. Unauthenticated users can only access protected routes after login
-  if (to.meta.requiresAuth && !isLoggedIn) {
-    return { path: '/' }
-  }
+  // 2. Unauthenticated → guest page
+  if (to.meta.requiresAuth && !isLoggedIn) return { path: '/' }
 
-  // 3. Block non-admins from accessing /admin directly
+  // 3. Role-based access control
   if (to.meta.requiresAdmin && !isAdmin) {
     return isManager ? { path: '/manager' } : { path: '/home' }
   }
@@ -70,6 +83,12 @@ router.beforeEach((to) => {
   if (to.meta.requiresManager && !(isAdmin || isManager)) {
     return { path: '/home' }
   }
+
+  if (to.meta.requiresTenant && !isTenant) {
+    return isAdmin ? { path: '/admin' } : { path: '/home' }
+  }
+
+  return true
 })
 
 export default router

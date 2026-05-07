@@ -248,9 +248,24 @@ const handleLogin = async () => {
       email:         data.email,
     })
 
+    // 🔍 Add these debug logs
+    console.log('1. raw data.role:', data.role)
+    console.log('2. auth.user:', JSON.stringify(auth.user))
+    console.log('3. auth.user.role:', auth.user?.role)
+    console.log('4. isTenant:', auth.isTenant)
+    console.log('5. isAdmin:', auth.isAdmin)
+    console.log('6. Role.TENANT value:', 'ROLE_TENANT')
+    console.log('7. role === ROLE_TENANT?', auth.user?.role === 'ROLE_TENANT')
+
+    const redirect = auth.isAdmin ? '/admin' : auth.isManager ? '/manager' : auth.isTenant ? '/tenant/dashboard' : '/home'
+    console.log('8. redirecting to:', redirect)
+
     loginSuccess.value = `Welcome back, ${data.username}!`
-    const redirect = auth.isAdmin ? '/admin' : auth.isManager ? '/manager' : '/home'
-    setTimeout(() => { closeLoginModal(); router.push(redirect) }, 1000)
+    setTimeout(() => { 
+      closeLoginModal()
+      console.log('9. calling router.push:', redirect)
+      router.push(redirect) 
+    }, 1000)
   } catch (err: any) {
     loginError.value = err?.message || 'Invalid credentials.'
   } finally {
