@@ -178,8 +178,12 @@ const showInquiry = ref(false)
 const inquiryRoom = ref<Room | null>(null)
 
 function openInquiry(room: Room) {
-  const token = localStorage.getItem('token')
-  if (!token) { openLoginModal(); return }
+  const token = localStorage.getItem('access_token')
+  if (!token) { 
+    pendingRoom.value = room
+    openLoginModal() 
+    return 
+  }
   inquiryRoom.value = room
   showInquiry.value = true
 }
@@ -211,6 +215,8 @@ const loginError      = ref('')
 const loginSuccess    = ref('')
 const loginLoading    = ref(false)
 const showLoginPw     = ref(false)
+const pendingRoom = ref<Room | null>(null)
+
 
 function openLoginModal() {
   showRegisterModal.value = false
@@ -248,24 +254,24 @@ const handleLogin = async () => {
       email:         data.email,
     })
 
-    // 🔍 Add these debug logs
-    console.log('1. raw data.role:', data.role)
-    console.log('2. auth.user:', JSON.stringify(auth.user))
-    console.log('3. auth.user.role:', auth.user?.role)
-    console.log('4. isTenant:', auth.isTenant)
-    console.log('5. isAdmin:', auth.isAdmin)
-    console.log('6. Role.TENANT value:', 'ROLE_TENANT')
-    console.log('7. role === ROLE_TENANT?', auth.user?.role === 'ROLE_TENANT')
-
-    const redirect = auth.isAdmin ? '/admin' : auth.isManager ? '/manager' : auth.isTenant ? '/tenant/dashboard' : '/home'
-    console.log('8. redirecting to:', redirect)
-
     loginSuccess.value = `Welcome back, ${data.username}!`
-    setTimeout(() => { 
+
+    setTimeout(() => {
       closeLoginModal()
-      console.log('9. calling router.push:', redirect)
-      router.push(redirect) 
+
+      if (pendingRoom.value && auth.isTenant) {
+        inquiryRoom.value = pendingRoom.value
+        pendingRoom.value = null
+        showInquiry.value = true
+        return
+      }
+      
+      let redirect = '/tenant/dashboard'
+      if (auth.isAdmin)   redirect = '/admin'
+      if (auth.isManager) redirect = '/manager'
+      router.push(redirect)
     }, 1000)
+
   } catch (err: any) {
     loginError.value = err?.message || 'Invalid credentials.'
   } finally {
