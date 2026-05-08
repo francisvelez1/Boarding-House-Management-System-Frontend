@@ -1,26 +1,64 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useAuthStore } from '../../stores/auth'
 import type { Room } from '../../models/room'
 import { formatPrice, moveInTotal, requiredDeposit, requiredAdvance, TYPE_LABEL, FLOOR_LABEL } from '../../models/room'
 
 const props = defineProps<{ room: Room | null }>()
 const emit  = defineEmits<{ (e: 'close'): void }>()
 
+const auth = useAuthStore()
+
 const name = ref('')
 const msg  = ref('')
 const sent = ref(false)
+const loading = ref(false)
+const error   = ref('')
 
 async function submit() {
   // TODO: POST /api/inquiries  { room_id, name, message }
-  sent.value = true
+  if (!name.value.trim()) { error.value = 'Please enter your name.'; return }
+  if (!msg.value.trim())  { error.value = 'Please enter a message.'; return }
+    
+    sent.value = true
+    loading.value = true
+    error.value   = ''
+
+
+    // API Call to send inquiry
+    try {
+    const res = await fetch('/api/inquiries', {
+      method:  'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'Authorization': `Bearer ${auth.token}`,
+      },
+      body: JSON.stringify({
+        room_id: props.room?.id,
+        name:    name.value,
+        message: msg.value,
+      }),
+    })
+
+    if (!res.ok) throw new Error('Failed to send inquiry.')
+    sent.value = true
+
+  } catch (err: any) {
+    error.value = err?.message || 'Something went wrong. Please try again.'
+  } finally {
+    loading.value = false
+  }
 }
 
 function close() {
   name.value = ''
   msg.value  = ''
   sent.value = false
+  error.value   = ''
+  loading.value = false
   emit('close')
 }
+
 </script>
 
 <template>
@@ -65,7 +103,10 @@ function close() {
             <label>Message</label>
             <textarea v-model="msg" rows="3" placeholder="Hi, I'm interested in this room…" class="modal-input"></textarea>
           </div>
-          <button class="btn-submit" @click="submit">Send Inquiry</button>
+            <p v-if="error" class="error-msg">⚠️ {{ error }}</p>
+          <button class="btn-submit" :disabled="loading" @click="submit">
+            {{ loading ? 'Sending…' : 'Send Inquiry' }}
+          </button>
         </template>
 
         <template v-else>
@@ -137,5 +178,15 @@ function close() {
   padding: 8px 24px; border-radius: 24px;
   background: #ae68fa; color: #fff; border: none;
   font-weight: 600; font-size: 14px; cursor: pointer;
+}
+.error-msg {
+  color: #e74c3c;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.btn-submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 </style>

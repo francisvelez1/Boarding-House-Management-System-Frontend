@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { ref, onMounted, onUnmounted } from "vue";
 import { useAuthStore } from '../../stores/auth'
 import LeaseCard from '../../components/TenantsUI_Components/LeaseCard.vue'
 import PaymentsCard from '../../components/TenantsUI_Components/PaymentsCard.vue'
@@ -18,8 +18,10 @@ const lease = ref<any>(null);
 const payments = ref<any[]>([]);
 const maintenanceRequests = ref<any[]>([]);
 const messages = ref<any[]>([]);
-const loading = ref(true)   // ✅ track loading state
-const error = ref('')       // ✅ track errors
+const loading = ref(true) 
+const error = ref('')     
+const activeSection = ref('my-room')
+
 
 onMounted(async () => {
   const tenantId = auth.user?.id?.toString() ?? ''
@@ -50,7 +52,7 @@ onMounted(async () => {
     console.error('Dashboard load error:', err)
     error.value = err?.message || 'Failed to load dashboard.'
   } finally {
-    loading.value = false  // ✅ always stop loading
+    loading.value = false 
   }
 })
 
@@ -81,38 +83,71 @@ function handleLogout() {
   auth.logout()
   router.push('/')
 }
+
+function scrollTo(sectionId: string) {
+  activeSection.value = sectionId
+  const el = document.getElementById(sectionId)
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+}
+
+function onScroll() {
+  const sections = ['my-room', 'payments', 'messages']
+  for (const id of sections) {
+    const el = document.getElementById(id)
+    if (el) {
+      const rect = el.getBoundingClientRect()
+      if (rect.top <= 100) activeSection.value = id
+    }
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('scroll', onScroll)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('scroll', onScroll)
+})
 </script>
 
 <template>
   <div class="dashboard">
 
     <!-- ── Navbar ───────────────────────────────── -->
-    <nav class="navbar">
-      <div class="navbar__brand">
-        <span class="navbar__icon">🏠</span>
-        <span class="navbar__name">ResidEase</span>
-      </div>
-      <div class="navbar__links">
-        <a href="#" class="navbar__link navbar__link--active">My room</a>
-        <a href="#" class="navbar__link">Payments</a>
-        <a href="#" class="navbar__link">Maintenance</a>
-        <a href="#" class="navbar__link">Messages</a>
-      </div>
-      <div class="navbar__user">
-        <button class="navbar__notif-btn">
-          🔔
-          <span class="navbar__notif-dot" />
-        </button>
-        <!-- ✅ Use auth store directly — no API wait needed -->
-        <div class="navbar__avatar">{{ initials }}</div>
-        <span class="navbar__username">{{ username }}</span>
+<nav class="navbar">
+  <div class="navbar__brand">
+    <span class="navbar__icon">🏠</span>
+    <span class="navbar__name">ResidEase</span>
+  </div>
+  <div class="navbar__links">
+    <a :class="['navbar__link', activeSection === 'my-room' ? 'navbar__link--active' : '']"
+       @click.prevent="scrollTo('my-room')"
+       href="#">My room</a>
 
-              <button class="navbar__logout-btn" @click="handleLogout">
-                  Logout
-              </button>
+    <a :class="['navbar__link', activeSection === 'payments' ? 'navbar__link--active' : '']"
+       @click.prevent="scrollTo('payments')"
+       href="#">Payments</a>
 
-      </div>
-    </nav>
+    <a :class="['navbar__link', activeSection === 'payments' ? 'navbar__link--active' : '']"
+       @click.prevent="scrollTo('payments')"
+       href="#">Maintenance</a>
+
+    <a :class="['navbar__link', activeSection === 'messages' ? 'navbar__link--active' : '']"
+       @click.prevent="scrollTo('messages')"
+       href="#">Messages</a>
+  </div>
+  <div class="navbar__user">
+    <button class="navbar__notif-btn">
+      🔔
+      <span class="navbar__notif-dot" />
+    </button>
+    <div class="navbar__avatar">{{ initials }}</div>
+    <span class="navbar__username">{{ username }}</span>
+    <button class="navbar__logout-btn" @click="handleLogout">Logout</button>
+  </div>
+</nav>
 
     <!-- ── Loading State ────────────────────────── -->
     <div v-if="loading" class="loading-screen">
@@ -151,18 +186,25 @@ function handleLogout() {
         </div>
       </header>
 
-      <main class="content">
-        <section class="section--full">
-          <LeaseCard v-if="lease" :lease="lease" />
-        </section>
-        <section class="section--two-col">
-          <PaymentsCard v-if="payments.length" :payments="payments" @pay-now="handlePayNow" />
-          <MaintenanceCard v-if="maintenanceRequests.length" :requests="maintenanceRequests" @submit-new="handleSubmitMaintenance" />
-        </section>
-        <section class="section--full">
-          <MessagesCard v-if="messages.length" :messages="messages" @open-message="handleOpenMessage" />
-        </section>
-      </main>
+<!-- ── Main Content ─────────────────────────────────────── -->
+<main class="content">
+  <section id="my-room" class="section--full">
+    <LeaseCard v-if="lease" :lease="lease" />
+  </section>
+  <section id="payments" class="section--two-col">
+    <PaymentsCard v-if="payments.length" :payments="payments" @pay-now="handlePayNow" />
+    <MaintenanceCard v-if="maintenanceRequests.length" :requests="maintenanceRequests" @submit-new="handleSubmitMaintenance" />
+  </section>
+  <section id="maintenance" class="section--full" style="display:none">
+    <!-- already inside payments section, just for scroll target -->
+  </section>
+  <section id="messages" class="section--full">
+    <MessagesCard v-if="messages.length" :messages="messages" @open-message="handleOpenMessage" />
+  </section>
+</main>
+
+
+
     </template>
 
   </div>
