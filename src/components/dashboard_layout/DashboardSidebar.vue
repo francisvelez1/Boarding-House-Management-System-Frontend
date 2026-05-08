@@ -24,6 +24,7 @@ const adminGroups: { section: string; items: NavItem[] }[] = [
     section: 'Access control',
     items: [
       { key: 'users', label: 'User accounts', icon: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM19 8v6m3-3h-6', badge: 3 },
+      { key: 'manager-requests', label: 'Manager Requests', icon: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z' },
       { key: 'roles', label: 'Roles & permissions', icon: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z' },
     ],
   },
@@ -33,7 +34,7 @@ const adminGroups: { section: string; items: NavItem[] }[] = [
 
 const managerGroups: { section: string; items: NavItem[] }[] = [
   { section: 'Main', items: [{ key: 'dashboard', label: 'Dashboard', icon: 'M3 3h7v7H3zm11 0h7v7h-7zM3 14h7v7H3zm11 0h7v7h-7z' }] },
-  { section: 'Operations', items: [{ key: 'rooms', label: 'Rooms', icon: 'M3 21h18M5 21V7l8-4 8 4v14M9 9h.01M15 9h.01M9 13h.01M15 13h.01' }, { key: 'leases', label: 'Leases', icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6' }, { key: 'payments', label: 'Payments', icon: 'M2 7h20M4 5h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z' }, { key: 'maintenance', label: 'Maintenance', icon: 'M14.7 6.3a1 1 0 0 1 0 1.4l-7 7a1 1 0 0 1-1.4 0l-2-2a1 1 0 0 1 1.4-1.4L7 12.6l6.3-6.3a1 1 0 0 1 1.4 0z' }] },
+  { section: 'Operations', items: [{ key: 'bookings', label: 'Applications', icon: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM19 8v6m3-3h-6' }, { key: 'rooms', label: 'Rooms', icon: 'M3 21h18M5 21V7l8-4 8 4v14M9 9h.01M15 9h.01M9 13h.01M15 13h.01' }, { key: 'leases', label: 'Leases', icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6' }, { key: 'payments', label: 'Payments', icon: 'M2 7h20M4 5h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z' }, { key: 'maintenance', label: 'Maintenance', icon: 'M14.7 6.3a1 1 0 0 1 0 1.4l-7 7a1 1 0 0 1-1.4 0l-2-2a1 1 0 0 1 1.4-1.4L7 12.6l6.3-6.3a1 1 0 0 1 1.4 0z' }] },
 ]
 
 const navGroups = computed(() => (props.variant === 'manager' ? managerGroups : adminGroups))

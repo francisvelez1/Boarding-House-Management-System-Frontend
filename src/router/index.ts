@@ -65,10 +65,10 @@ router.beforeEach((to) => {
   if (to.path === '/manager'          && isManager) return true   
 
   // 1. Redirect logged-in users away from guest page based on their role
-    if (isLoggedIn && to.path === '/') {
-    if (isTenant)  return { path: '/tenant/dashboard' }
+  if (isLoggedIn && to.path === '/') {
     if (isAdmin)   return { path: '/admin' }
     if (isManager) return { path: '/manager' }
+    // All other authenticated users (including tenants) go to /home to browse rooms
     return { path: '/home' }
   }
 

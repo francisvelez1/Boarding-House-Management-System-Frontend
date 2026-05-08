@@ -7,6 +7,7 @@ import DashboardSidebar from '@/components/dashboard_layout/DashboardSidebar.vue
 import DashboardTopbar from '@/components/dashboard_layout/DashboardTopbar.vue'
 import DashboardDashboard from '@/components/dashboard_layout/DashboardDashboard.vue'
 import { adminService, type AdminRole, type AdminStatsResponse, type AdminStatus, type AdminUserSummary } from '../../services/adminService'
+import { managerRequestService, type ManagerRoleRequestItem } from '../../services/managerRequestService'
 
 type AdminUserRow = {
   id: string
@@ -32,8 +33,40 @@ const filters = ref<{ search: string; role: 'all' | AdminRole; status: 'all' | A
   status: 'all',
 })
 
+const managerRequests = ref<ManagerRoleRequestItem[]>([])
+
 function navigate(section: string) {
   activeSection.value = section
+}
+
+async function fetchManagerRequests() {
+  try {
+    const res = await managerRequestService.listAll({ status: 'PENDING', limit: 50 })
+    managerRequests.value = res.requests ?? []
+  } catch (e: any) {
+    error.value = e?.message ?? 'Failed to load manager requests.'
+  }
+}
+
+async function approveManagerRequest(id: string) {
+  if (!window.confirm('Approve this manager application?')) return
+  try {
+    await managerRequestService.review(id, { status: 'APPROVED' })
+    await fetchManagerRequests()
+  } catch (e: any) {
+    error.value = e?.message ?? 'Failed to approve request.'
+  }
+}
+
+async function rejectManagerRequest(id: string) {
+  const reason = window.prompt('Reason for rejection:')
+  if (reason === null) return
+  try {
+    await managerRequestService.review(id, { status: 'REJECTED', review_notes: reason || 'Rejected by admin' })
+    await fetchManagerRequests()
+  } catch (e: any) {
+    error.value = e?.message ?? 'Failed to reject request.'
+  }
 }
 
 function handleLogout() {
@@ -167,6 +200,7 @@ function onFiltersChange(payload: { search: string; role: 'all' | AdminRole; sta
 
 onMounted(() => {
   void fetchAdminData()
+  void fetchManagerRequests()
 })
 </script>
 
@@ -222,6 +256,34 @@ onMounted(() => {
           @delete-user="onDeleteUser"
           @change-role="onChangeRole"
         />
+
+        <section v-else-if="activeSection === 'manager-requests'" class="section">
+          <div class="section-hdr">
+            <div>
+              <h1 class="section-title">Manager Role Requests</h1>
+              <p class="section-sub">Review tenant applications to become property managers.</p>
+            </div>
+          </div>
+          <div class="card">
+            <table class="table">
+              <thead><tr><th>Property</th><th>Location</th><th>Rooms</th><th>Address</th><th>Status</th><th>Actions</th></tr></thead>
+              <tbody>
+                <tr v-if="managerRequests.length === 0"><td colspan="6" class="empty">No pending manager requests</td></tr>
+                <tr v-for="r in managerRequests" :key="r.id">
+                  <td>{{ r.property_name }}</td>
+                  <td>{{ r.location }}</td>
+                  <td>{{ r.room_count }}</td>
+                  <td>{{ r.address }}</td>
+                  <td><span class="badge" :class="r.status.toLowerCase()">{{ r.status }}</span></td>
+                  <td>
+                    <button class="action-btn approve" @click="approveManagerRequest(r.id)">Approve</button>
+                    <button class="action-btn reject" @click="rejectManagerRequest(r.id)">Reject</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
 
         <section v-else class="section">
           <div class="section-hdr">
@@ -371,6 +433,19 @@ onMounted(() => {
 .back-btn:hover {
   opacity: 0.88;
 }
+
+.card { background: #fff; border: 1px solid #e0ddf7; border-radius: 14px; padding: 14px; margin-bottom: 14px; }
+.table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.table th { text-align: left; color: #9ca3af; font-weight: 600; border-bottom: 1px solid #f3f0fb; padding: 8px; }
+.table td { border-bottom: 1px solid #f9f7ff; padding: 8px; }
+.empty { color: #9ca3af; text-align: center; }
+.badge { padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+.badge.pending  { background: #fef9c3; color: #854d0e; }
+.badge.approved { background: #dcfce7; color: #166534; }
+.badge.rejected { background: #fee2e2; color: #991b1b; }
+.action-btn { padding: 4px 10px; border-radius: 6px; border: none; font-size: 12px; font-weight: 600; cursor: pointer; margin-right: 6px; }
+.action-btn.approve { background: #dcfce7; color: #166534; }
+.action-btn.reject  { background: #fee2e2; color: #991b1b; }
 
 @media (max-width: 768px) {
   .content-area {

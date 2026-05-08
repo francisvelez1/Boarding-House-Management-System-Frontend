@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { ref, onMounted, reactive } from "vue";
 import { useAuthStore } from '../../stores/auth'
 import LeaseCard from '../../components/TenantsUI_Components/LeaseCard.vue'
 import PaymentsCard from '../../components/TenantsUI_Components/PaymentsCard.vue'
 import MaintenanceCard from '../../components/TenantsUI_Components/MaintenanceCard.vue'
 import MessagesCard from '../../components/TenantsUI_Components/MessageCard.vue'
 import { getTenant, getLease, getPayments, getMaintenanceRequests, getMessages } from "../../services/tenantService";
+import { maintenanceService } from "../../services/maintenanceService";
 import router from "../../router";
 
 const auth = useAuthStore()
@@ -20,6 +21,19 @@ const maintenanceRequests = ref<any[]>([]);
 const messages = ref<any[]>([]);
 const loading = ref(true)   // ✅ track loading state
 const error = ref('')       // ✅ track errors
+
+// ── Maintenance form ─────────────────────────────────────────────────────────
+const showMaintModal = ref(false)
+const maintForm = reactive({
+  room_id: '',
+  title: '',
+  description: '',
+  category: 'OTHER' as 'PLUMBING' | 'ELECTRICAL' | 'CARPENTRY' | 'APPLIANCE' | 'PEST' | 'CLEANING' | 'SECURITY' | 'OTHER',
+  priority: 'MEDIUM' as 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT',
+})
+const maintLoading = ref(false)
+const maintError = ref('')
+const maintSuccess = ref('')
 
 onMounted(async () => {
   const tenantId = auth.user?.id?.toString() ?? ''
@@ -70,7 +84,43 @@ function handlePayNow(amount: number) {
 }
 
 function handleSubmitMaintenance() {
-  alert('Opening maintenance request form…')
+  maintError.value = ''
+  maintSuccess.value = ''
+  maintForm.room_id = tenant.value?.room_id ?? ''
+  maintForm.title = ''
+  maintForm.description = ''
+  maintForm.category = 'OTHER'
+  maintForm.priority = 'MEDIUM'
+  showMaintModal.value = true
+}
+
+function closeMaintModal() {
+  showMaintModal.value = false
+  maintError.value = ''
+  maintSuccess.value = ''
+}
+
+async function submitMaintenance() {
+  maintError.value = ''
+  maintSuccess.value = ''
+  maintLoading.value = true
+  try {
+    const res = await maintenanceService.submit({
+      room_id: maintForm.room_id,
+      title: maintForm.title,
+      description: maintForm.description,
+      category: maintForm.category,
+      priority: maintForm.priority,
+    })
+    maintSuccess.value = res.message
+    // Refresh maintenance list
+    const updated = await maintenanceService.getMyRequests()
+    maintenanceRequests.value = updated.requests ?? []
+  } catch (err: any) {
+    maintError.value = err?.message || 'Failed to submit maintenance request.'
+  } finally {
+    maintLoading.value = false
+  }
 }
 
 function handleOpenMessage(id: number) {
@@ -157,13 +207,79 @@ function handleLogout() {
         </section>
         <section class="section--two-col">
           <PaymentsCard v-if="payments.length" :payments="payments" @pay-now="handlePayNow" />
-          <MaintenanceCard v-if="maintenanceRequests.length" :requests="maintenanceRequests" @submit-new="handleSubmitMaintenance" />
+          <MaintenanceCard :requests="maintenanceRequests" @submit-new="handleSubmitMaintenance" />
         </section>
         <section class="section--full">
           <MessagesCard v-if="messages.length" :messages="messages" @open-message="handleOpenMessage" />
         </section>
       </main>
     </template>
+
+    <!-- ── Maintenance Request Modal ──────────────────────────────────────── -->
+    <Teleport to="body">
+      <div v-if="showMaintModal" class="modal-overlay" @click.self="closeMaintModal">
+        <div class="modal-card">
+          <button class="modal-close" @click="closeMaintModal">✕</button>
+
+          <template v-if="!maintSuccess">
+            <div class="modal-header">
+              <h2>Submit Maintenance Request</h2>
+              <p class="modal-sub">Describe the issue and we'll handle it promptly.</p>
+            </div>
+
+            <div class="field">
+              <label>Room ID</label>
+              <input v-model="maintForm.room_id" type="text" placeholder="Room identifier" class="input" />
+            </div>
+            <div class="field">
+              <label>Title</label>
+              <input v-model="maintForm.title" type="text" placeholder="e.g. Leaking faucet" class="input" />
+            </div>
+            <div class="field">
+              <label>Category</label>
+              <select v-model="maintForm.category" class="input">
+                <option value="PLUMBING">Plumbing</option>
+                <option value="ELECTRICAL">Electrical</option>
+                <option value="CARPENTRY">Carpentry</option>
+                <option value="APPLIANCE">Appliance</option>
+                <option value="PEST">Pest</option>
+                <option value="CLEANING">Cleaning</option>
+                <option value="SECURITY">Security</option>
+                <option value="OTHER">Other</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Priority</label>
+              <select v-model="maintForm.priority" class="input">
+                <option value="LOW">Low</option>
+                <option value="MEDIUM">Medium</option>
+                <option value="HIGH">High</option>
+                <option value="URGENT">Urgent</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Description</label>
+              <textarea v-model="maintForm.description" rows="3" placeholder="Describe the issue in detail..." class="input"></textarea>
+            </div>
+
+            <p v-if="maintError" class="msg error">{{ maintError }}</p>
+
+            <button class="btn-primary" :disabled="maintLoading" @click="submitMaintenance">
+              {{ maintLoading ? 'Submitting…' : 'Submit Request' }}
+            </button>
+          </template>
+
+          <template v-else>
+            <div class="success-state">
+              <div class="success-icon">✅</div>
+              <h2>Request Sent!</h2>
+              <p>{{ maintSuccess }}</p>
+              <button class="btn-close" @click="closeMaintModal">Close</button>
+            </div>
+          </template>
+        </div>
+      </div>
+    </Teleport>
 
   </div>
 </template>
@@ -383,5 +499,58 @@ function handleLogout() {
 
 .navbar__logout-btn:hover {
   background: rgba(231, 76, 60, 0.6);
+}
+
+/* ── Modal ──────────────────────────────────────────────────── */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(17,24,39,.45);
+  backdrop-filter: blur(4px); display: flex; align-items: center;
+  justify-content: center; z-index: 100; padding: 24px;
+}
+.modal-card {
+  position: relative; width: 100%; max-width: 480px; background: #fff; border-radius: 28px;
+  padding: 36px 40px 32px; box-shadow: 0 32px 80px rgba(149,132,226,.3);
+  border: 1px solid rgba(210,196,255,.7); display: flex; flex-direction: column;
+  gap: 14px; animation: slideUp .2s ease; overflow-y: auto; max-height: 90vh;
+}
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.modal-close {
+  position: absolute; top: 16px; right: 18px;
+  background: none; border: none; font-size: 18px; line-height: 1;
+  color: #9ca3af; cursor: pointer; padding: 4px 6px; border-radius: 8px;
+  transition: color .15s, background .15s;
+}
+.modal-close:hover { color: #111827; background: #f3f4f6; }
+.modal-header { display: flex; flex-direction: column; gap: 4px; }
+.modal-header h2 { font-size: 22px; font-weight: 700; color: #111827; margin: 0; }
+.modal-sub { font-size: 14px; color: #6b7280; margin: 0; }
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field label { font-size: 14px; color: #4b5563; font-weight: 500; }
+.input {
+  width: 100%; border-radius: 24px; border: 1px solid #e0ddf7;
+  padding: 11px 16px; font-size: 14px; outline: none; box-sizing: border-box;
+  transition: border-color .15s, box-shadow .15s; background: #fff; font-family: inherit;
+}
+.input:focus { border-color: #ae68fa; box-shadow: 0 0 0 3px rgba(174,104,250,.18); }
+.msg { font-size: 13px; padding: 10px 14px; border-radius: 10px; }
+.error   { background: #fee2e2; color: #dc2626; }
+.btn-primary {
+  width: 100%; padding: 12px; border-radius: 999px; border: none;
+  background: linear-gradient(90deg, #ae68fa, #f1966e);
+  color: #fff; font-size: 15px; font-weight: 600; cursor: pointer; transition: opacity .15s;
+}
+.btn-primary:hover    { opacity: .9; }
+.btn-primary:disabled { opacity: .6; cursor: not-allowed; }
+.success-state { text-align: center; padding: 20px 0; }
+.success-icon  { font-size: 48px; margin-bottom: 16px; }
+.success-state h2 { font-size: 22px; font-weight: 800; color: #1f2937; margin-bottom: 8px; }
+.success-state p  { color: #6b7280; margin-bottom: 24px; }
+.btn-close {
+  padding: 8px 24px; border-radius: 24px;
+  background: linear-gradient(90deg, #ae68fa, #f1966e); color: #fff; border: none;
+  font-weight: 600; font-size: 14px; cursor: pointer;
 }
 </style>

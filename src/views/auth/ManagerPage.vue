@@ -5,12 +5,13 @@ import { useAuthStore } from '../../stores/auth'
 import DashboardSidebar from '@/components/dashboard_layout/DashboardSidebar.vue'
 import DashboardTopbar from '@/components/dashboard_layout/DashboardTopbar.vue'
 import { managerService, type ManagerDashboardPayload, type ManagerLease, type ManagerMaintenance, type ManagerPayment, type ManagerRoom } from '../../services/managerService'
+import { bookingService, type BookingItem } from '../../services/bookingService'
 
 const router = useRouter()
 const auth = useAuthStore()
 
 const sidebarOpen = ref(true)
-const activeSection = ref<'dashboard' | 'rooms' | 'leases' | 'payments' | 'maintenance'>('dashboard')
+const activeSection = ref<'dashboard' | 'bookings' | 'rooms' | 'leases' | 'payments' | 'maintenance'>('dashboard')
 const loading = ref(false)
 const error = ref('')
 
@@ -19,9 +20,10 @@ const rooms = ref<ManagerRoom[]>([])
 const leases = ref<ManagerLease[]>([])
 const payments = ref<ManagerPayment[]>([])
 const maintenance = ref<ManagerMaintenance[]>([])
+const bookings = ref<BookingItem[]>([])
 
 function navigate(section: string) {
-  if (['dashboard', 'rooms', 'leases', 'payments', 'maintenance'].includes(section)) {
+  if (['dashboard', 'bookings', 'rooms', 'leases', 'payments', 'maintenance'].includes(section)) {
     activeSection.value = section as typeof activeSection.value
   }
 }
@@ -45,22 +47,45 @@ async function loadManagerData() {
   loading.value = true
   error.value = ''
   try {
-    const [dashboardRes, roomsRes, leasesRes, paymentsRes, maintenanceRes] = await Promise.all([
+    const [dashboardRes, roomsRes, leasesRes, paymentsRes, maintenanceRes, bookingsRes] = await Promise.all([
       managerService.getDashboard(),
       managerService.listRooms(8),
       managerService.listLeases(8),
       managerService.listPayments(),
       managerService.listMaintenance(),
+      bookingService.listAll({ status: 'PENDING', limit: 20 }),
     ])
     dashboard.value = dashboardRes
     rooms.value = roomsRes
     leases.value = leasesRes
     payments.value = paymentsRes.slice(0, 8)
     maintenance.value = maintenanceRes.slice(0, 8)
+    bookings.value = bookingsRes.bookings ?? []
   } catch (e: any) {
     error.value = e?.message ?? 'Failed to load manager dashboard.'
   } finally {
     loading.value = false
+  }
+}
+
+async function approveBooking(id: string) {
+  if (!window.confirm('Approve this booking?')) return
+  try {
+    await bookingService.review(id, { status: 'APPROVED', review_notes: 'Approved by manager' })
+    await loadManagerData()
+  } catch (e: any) {
+    error.value = e?.message ?? 'Failed to approve booking.'
+  }
+}
+
+async function rejectBooking(id: string) {
+  const reason = window.prompt('Reason for rejection:')
+  if (reason === null) return
+  try {
+    await bookingService.review(id, { status: 'REJECTED', review_notes: reason || 'Rejected by manager' })
+    await loadManagerData()
+  } catch (e: any) {
+    error.value = e?.message ?? 'Failed to reject booking.'
   }
 }
 
@@ -180,6 +205,30 @@ onMounted(() => {
           </table>
         </section>
 
+        <section v-if="activeSection === 'bookings' || activeSection === 'dashboard'" class="card">
+          <div class="card-hdr">
+            <h3>Tenant Applications ({{ bookings.length }})</h3>
+            <button class="mini-btn" @click="navigate('bookings')">View section</button>
+          </div>
+          <table class="table">
+            <thead><tr><th>Name</th><th>Room</th><th>Phone</th><th>Date</th><th>Actions</th></tr></thead>
+            <tbody>
+              <tr v-if="loading"><td colspan="5">Loading...</td></tr>
+              <tr v-for="b in bookings.slice(0, activeSection === 'dashboard' ? 5 : bookings.length)" :key="b.id">
+                <td>{{ b.full_name }}</td>
+                <td>{{ b.room_number ?? b.room_id.slice(0,8) }}</td>
+                <td>{{ b.phone }}</td>
+                <td>{{ formatDate(b.created_at) }}</td>
+                <td>
+                  <button class="action-btn approve" @click="approveBooking(b.id)">Approve</button>
+                  <button class="action-btn reject" @click="rejectBooking(b.id)">Reject</button>
+                </td>
+              </tr>
+              <tr v-if="!loading && bookings.length === 0"><td colspan="5" class="empty">No pending applications</td></tr>
+            </tbody>
+          </table>
+        </section>
+
         <section v-if="activeSection === 'maintenance' || activeSection === 'dashboard'" class="card">
           <div class="card-hdr">
             <h3>Maintenance Requests</h3>
@@ -224,5 +273,9 @@ onMounted(() => {
 .table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .table th { text-align: left; color: #9ca3af; font-weight: 600; border-bottom: 1px solid #f3f0fb; padding: 8px; }
 .table td { border-bottom: 1px solid #f9f7ff; padding: 8px; }
+.action-btn { padding: 4px 10px; border-radius: 6px; border: none; font-size: 12px; font-weight: 600; cursor: pointer; margin-right: 6px; }
+.action-btn.approve { background: #dcfce7; color: #166534; }
+.action-btn.reject  { background: #fee2e2; color: #991b1b; }
+.empty { color: #9ca3af; text-align: center; }
 @media (max-width: 1100px) { .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 </style>
