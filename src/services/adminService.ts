@@ -34,6 +34,51 @@ export interface AdminStatsResponse {
   }
 }
 
+export interface RolePermission {
+  role: string
+  display_name: string
+  level: number
+  permissions: string[]
+}
+
+export interface RolesPermissionsResponse {
+  roles: RolePermission[]
+}
+
+export interface AuditLog {
+  id: string
+  timestamp: string
+  action: string
+  actor: string
+  target_type: string
+  target_id: string
+  details: Record<string, unknown>
+}
+
+export interface AuditLogsResponse {
+  total: number
+  page: number
+  limit: number
+  logs: AuditLog[]
+}
+
+export interface SystemHealthResponse {
+  status: string
+  timestamp: string
+  uptime_seconds: number
+  database: { connected: boolean }
+  stats: { users: number }
+}
+
+export interface SystemSettingsData {
+  site_name: string
+  maintenance_mode: boolean
+  allow_registration: boolean
+  default_user_role: string
+  session_timeout_minutes: number
+  support_email: string
+}
+
 type UserQuery = {
   page?: number
   limit?: number
@@ -63,6 +108,26 @@ class AdminService extends BaseService {
 
   deleteUser(userId: string): Promise<{ message: string }> {
     return this.delete(`/users/${userId}`)
+  }
+
+  getRolesPermissions(): Promise<RolesPermissionsResponse> {
+    return this.get('/roles-permissions')
+  }
+
+  getAuditLogs(params: { page?: number; limit?: number; action?: string; actor?: string; target_type?: string } = {}): Promise<AuditLogsResponse> {
+    return this.get('/audit-logs', { params })
+  }
+
+  getSystemHealth(): Promise<SystemHealthResponse> {
+    return this.get('/system-health')
+  }
+
+  getSystemSettings(): Promise<SystemSettingsData> {
+    return this.get('/system-settings')
+  }
+
+  updateSystemSettings(data: Partial<SystemSettingsData>): Promise<{ message: string; settings: SystemSettingsData }> {
+    return this.patch('/system-settings', data)
   }
 }
 
