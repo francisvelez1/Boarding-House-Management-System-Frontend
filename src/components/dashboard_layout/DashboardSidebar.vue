@@ -6,8 +6,10 @@ const props = withDefaults(defineProps<{
   sidebarOpen: boolean
   username?: string
   variant?: 'admin' | 'manager'
+  badges?: Record<string, number>
 }>(), {
   variant: 'admin',
+  badges: () => ({}),
 })
 
 const emit = defineEmits<{
@@ -33,8 +35,30 @@ const adminGroups: { section: string; items: NavItem[] }[] = [
 ]
 
 const managerGroups: { section: string; items: NavItem[] }[] = [
-  { section: 'Main', items: [{ key: 'dashboard', label: 'Dashboard', icon: 'M3 3h7v7H3zm11 0h7v7h-7zM3 14h7v7H3zm11 0h7v7h-7z' }] },
-  { section: 'Operations', items: [{ key: 'bookings', label: 'Applications', icon: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM19 8v6m3-3h-6' }, { key: 'rooms', label: 'Rooms', icon: 'M3 21h18M5 21V7l8-4 8 4v14M9 9h.01M15 9h.01M9 13h.01M15 13h.01' }, { key: 'leases', label: 'Leases', icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6' }, { key: 'payments', label: 'Payments', icon: 'M2 7h20M4 5h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z' }, { key: 'maintenance', label: 'Maintenance', icon: 'M14.7 6.3a1 1 0 0 1 0 1.4l-7 7a1 1 0 0 1-1.4 0l-2-2a1 1 0 0 1 1.4-1.4L7 12.6l6.3-6.3a1 1 0 0 1 1.4 0z' }] },
+  {
+    section: 'Main',
+    items: [
+      { key: 'dashboard', label: 'Dashboard', icon: 'M3 3h7v7H3zm11 0h7v7h-7zM3 14h7v7H3zm11 0h7v7h-7z' },
+      { key: 'tenants',   label: 'Tenants',   icon: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75' },
+      { key: 'rooms',     label: 'Rooms',     icon: 'M3 21h18M5 21V7l8-4 8 4v14M9 9h.01M15 9h.01M9 13h.01M15 13h.01' },
+      { key: 'leases',    label: 'Leases',    icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M16 13H8m8 4H8m2-8H8' },
+    ],
+  },
+  {
+    section: 'Finance',
+    items: [
+      { key: 'payments', label: 'Payments',  icon: 'M2 7h20M4 5h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z' },
+      { key: 'reports',  label: 'Reports',   icon: 'M18 20V10M12 20V4M6 20v-6' },
+    ],
+  },
+  {
+    section: 'Operations',
+    items: [
+      { key: 'maintenance', label: 'Maintenance', icon: 'M14.7 6.3a1 1 0 0 1 0 1.4l-7 7a1 1 0 0 1-1.4 0l-2-2a1 1 0 0 1 1.4-1.4L7 12.6l6.3-6.3a1 1 0 0 1 1.4 0z' },
+      { key: 'messages',    label: 'Messages',    icon: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' },
+      { key: 'bookings',    label: 'Applications', icon: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM19 8v6m3-3h-6' },
+    ],
+  },
 ]
 
 const navGroups = computed(() => (props.variant === 'manager' ? managerGroups : adminGroups))
@@ -76,7 +100,7 @@ const initials = (name?: string) => (name ? name.slice(0, 2).toUpperCase() : 'AD
           <transition name="fade-text">
             <span v-if="sidebarOpen" class="nav-label-wrap">
               <span class="nav-label">{{ item.label }}</span>
-              <span v-if="item.badge != null" class="nav-badge">{{ item.badge }}</span>
+              <span v-if="(props.badges[item.key] ?? item.badge) != null && (props.badges[item.key] ?? item.badge)! > 0" class="nav-badge">{{ props.badges[item.key] ?? item.badge }}</span>
             </span>
           </transition>
         </button>
