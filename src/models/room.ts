@@ -44,6 +44,13 @@ export interface RoomDimension {
   width_sqm?:  number
 }
 
+export interface ManagerInfo {
+  username:  string
+  full_name: string
+  email:     string
+  phone?:    string
+}
+
 // ================================================================
 // MAIN INTERFACE
 // ================================================================
@@ -85,6 +92,9 @@ export interface Room {
   updated_at: string
   created_by?: string
   updated_by?: string
+
+  // Manager (public listings)
+  manager_info?: ManagerInfo
 }
 
 // ================================================================
