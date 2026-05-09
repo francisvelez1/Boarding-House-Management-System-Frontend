@@ -20,12 +20,6 @@ const router = createRouter({
 
     // ── Protected Routes ──
     {
-      path: '/home',
-      name: 'Home',
-      component: () => import('../views/auth/HomePage.vue'),
-      meta: { requiresAuth: true },
-    },
-    {
       path: '/admin',
       name: 'Admin',
       component: () => import('../views/auth/AdminPage.vue'),
@@ -68,8 +62,14 @@ router.beforeEach((to) => {
   if (isLoggedIn && to.path === '/') {
     if (isAdmin)   return { path: '/admin' }
     if (isManager) return { path: '/manager' }
-    // All other authenticated users (including tenants) go to /home to browse rooms
-    return { path: '/home' }
+    return { path: '/tenant/dashboard' }
+  }
+
+  // Redirect /home → /tenant/dashboard for tenants
+  if (isLoggedIn && to.path === '/home') {
+    if (isAdmin)   return { path: '/admin' }
+    if (isManager) return { path: '/manager' }
+    return { path: '/tenant/dashboard' }
   }
 
   // 2. Unauthenticated → guest page
@@ -77,15 +77,15 @@ router.beforeEach((to) => {
 
   // 3. Role-based access control
   if (to.meta.requiresAdmin && !isAdmin) {
-    return isManager ? { path: '/manager' } : { path: '/home' }
+    return isManager ? { path: '/manager' } : { path: '/tenant/dashboard' }
   }
 
   if (to.meta.requiresManager && !(isAdmin || isManager)) {
-    return { path: '/home' }
+    return { path: '/tenant/dashboard' }
   }
 
   if (to.meta.requiresTenant && !isTenant) {
-    return isAdmin ? { path: '/admin' } : { path: '/home' }
+    return isAdmin ? { path: '/admin' } : { path: '/' }
   }
 
   return true

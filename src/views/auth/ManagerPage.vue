@@ -32,7 +32,10 @@ const rooms          = ref<ManagerRoom[]>([])
 const leases         = ref<ManagerLease[]>([])
 const payments       = ref<ManagerPayment[]>([])
 const maintenance    = ref<ManagerMaintenance[]>([])
-const bookings       = ref<BookingItem[]>([])
+const bookings           = ref<BookingItem[]>([])
+const viewingBooking     = ref<BookingItem | null>(null)
+const confirmRejectId    = ref('')
+const rejectReason       = ref('')
 const tenants        = ref<TenantResponse[]>([])
 const tenantStats    = ref<TenantStats | null>(null)
 const paymentStats   = ref<PaymentStats | null>(null)
@@ -277,25 +280,24 @@ async function loadManagerData() {
   }
 }
 
+function viewBooking(b: BookingItem) { viewingBooking.value = b }
+function closeBookingModal() { viewingBooking.value = null; confirmRejectId.value = ''; rejectReason.value = '' }
+
 async function approveBooking(id: string) {
-  if (!window.confirm('Approve this booking?')) return
   try {
     await bookingService.review(id, { status: 'APPROVED', review_notes: 'Approved by manager' })
+    closeBookingModal()
     await loadManagerData()
-  } catch (e: any) {
-    error.value = e?.message ?? 'Failed to approve booking.'
-  }
+  } catch (e: any) { error.value = e?.message ?? 'Failed to approve booking.' }
 }
 
 async function rejectBooking(id: string) {
-  const reason = window.prompt('Reason for rejection:')
-  if (reason === null) return
+  if (!confirmRejectId.value) { confirmRejectId.value = id; return }
   try {
-    await bookingService.review(id, { status: 'REJECTED', review_notes: reason || 'Rejected by manager' })
+    await bookingService.review(id, { status: 'REJECTED', review_notes: rejectReason.value || 'Rejected by manager' })
+    closeBookingModal()
     await loadManagerData()
-  } catch (e: any) {
-    error.value = e?.message ?? 'Failed to reject booking.'
-  }
+  } catch (e: any) { error.value = e?.message ?? 'Failed to reject booking.' }
 }
 
 async function updateMaintenanceStatus(id: string, action: 'start' | 'complete' | 'close') {
@@ -726,6 +728,41 @@ onMounted(() => { void loadManagerData() })
       </main>
     </div>
 
+    <!-- ════════════ BOOKING VIEW MODAL ════════════ -->
+    <Teleport to="body">
+      <div v-if="viewingBooking" class="view-modal-overlay" @click.self="closeBookingModal">
+        <div class="view-modal-card">
+          <button class="view-modal-close" @click="closeBookingModal">✕</button>
+          <div class="view-modal-hdr">
+            <div style="font-size:36px;margin-bottom:6px">&#128203;</div>
+            <h2>Booking Application</h2>
+            <p>Room {{ viewingBooking.room_number ?? viewingBooking.room_id.slice(0,8) }} &mdash; &#8369;{{ viewingBooking.monthly_rent?.toLocaleString() }}/mo</p>
+          </div>
+          <div class="vg">
+            <div class="vf"><span class="vfl">Applicant</span><span class="vfv">{{ viewingBooking.full_name }}</span></div>
+            <div class="vf"><span class="vfl">Email</span><span class="vfv">{{ viewingBooking.email }}</span></div>
+            <div class="vf"><span class="vfl">Phone</span><span class="vfv">{{ viewingBooking.phone }}</span></div>
+            <div class="vf"><span class="vfl">Address</span><span class="vfv">{{ viewingBooking.address }}</span></div>
+            <div class="vf" v-if="viewingBooking.desired_move_in_date"><span class="vfl">Move-in Date</span><span class="vfv">{{ viewingBooking.desired_move_in_date }}</span></div>
+            <div class="vf" v-if="viewingBooking.message"><span class="vfl">Message</span><span class="vfv">{{ viewingBooking.message }}</span></div>
+            <div class="vf"><span class="vfl">Submitted</span><span class="vfv">{{ formatDate(viewingBooking.created_at) }}</span></div>
+            <div class="vf"><span class="vfl">Status</span><span class="vfv"><span class="action-btn" :class="viewingBooking.status.toLowerCase()">{{ viewingBooking.status }}</span></span></div>
+          </div>
+          <template v-if="viewingBooking.status === 'PENDING'">
+            <div v-if="confirmRejectId === viewingBooking.id" style="margin-top:4px">
+              <label style="font-size:12px;color:#6b7280;font-weight:500">Rejection reason (optional)</label>
+              <input v-model="rejectReason" type="text" placeholder="Enter reason"
+                     style="margin-top:4px;width:100%;padding:8px 14px;border-radius:12px;border:1px solid #e0ddf7;font-size:13px;box-sizing:border-box;outline:none" />
+            </div>
+            <div style="display:flex;gap:10px;margin-top:10px">
+              <button class="vbtn-approve" @click="approveBooking(viewingBooking.id)">&#10003; Approve</button>
+              <button class="vbtn-reject"  @click="rejectBooking(viewingBooking.id)">{{ confirmRejectId === viewingBooking.id ? 'Confirm Reject' : '&#10007; Reject' }}</button>
+            </div>
+          </template>
+        </div>
+      </div>
+    </Teleport>
+
     <!-- ════════════ ADD ROOM MODAL ════════════ -->
     <Transition name="modal-fade">
       <div v-if="showAddRoomModal" class="modal-overlay" @click.self="showAddRoomModal = false">
@@ -1009,4 +1046,22 @@ onMounted(() => { void loadManagerData() })
 /* ── Modal transition ── */
 .modal-fade-enter-active, .modal-fade-leave-active { transition: opacity .18s ease; }
 .modal-fade-enter-from, .modal-fade-leave-to { opacity: 0; }
+.action-btn.view { background: #eff6ff; color: #2563eb; }
+</style>
+
+<style>
+/* ── Booking View Modal (Teleport – not scoped) ───────────── */
+.view-modal-overlay { position:fixed;inset:0;background:rgba(17,24,39,.5);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:2000;padding:24px; }
+.view-modal-card    { position:relative;width:100%;max-width:480px;background:#fff;border-radius:24px;padding:32px 36px 28px;box-shadow:0 24px 64px rgba(0,0,0,.15);display:flex;flex-direction:column;gap:12px;max-height:90vh;overflow-y:auto; }
+.view-modal-close   { position:absolute;top:14px;right:16px;background:none;border:none;font-size:18px;color:#9ca3af;cursor:pointer; }
+.view-modal-close:hover { color:#111827; }
+.view-modal-hdr     { text-align:center; }
+.view-modal-hdr h2  { font-size:20px;font-weight:800;color:#111827;margin:0 0 4px; }
+.view-modal-hdr p   { font-size:13px;color:#6b7280;margin:0; }
+.vg  { display:flex;flex-direction:column;gap:8px; }
+.vf  { display:flex;flex-direction:column;gap:2px;padding:9px 13px;background:#f9fafb;border-radius:10px; }
+.vfl { font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em; }
+.vfv { font-size:14px;color:#111827;font-weight:500; }
+.vbtn-approve { flex:1;padding:10px;border-radius:999px;border:none;background:#dcfce7;color:#16a34a;font-size:14px;font-weight:600;cursor:pointer; }
+.vbtn-reject  { flex:1;padding:10px;border-radius:999px;border:none;background:#fee2e2;color:#dc2626;font-size:14px;font-weight:600;cursor:pointer; }
 </style>

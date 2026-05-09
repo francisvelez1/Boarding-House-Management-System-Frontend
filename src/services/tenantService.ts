@@ -1,28 +1,37 @@
 import axios from "axios";
 
-const API_URL = "http://localhost:8000/api";
+const getHeaders = () => ({
+  Authorization: `Bearer ${localStorage.getItem('access_token') ?? ''}`,
+})
 
-export async function getTenant(id: string) {
-  const res = await axios.get(`${API_URL}/tenants/${id}`);
-  return res.data;
+const unwrap = (res: any) => res.data?.data ?? res.data
+
+export async function getTenant(_id?: string): Promise<any> {
+  const res = await axios.get('/api/tenants/me', { headers: getHeaders() })
+  return unwrap(res)
 }
 
-export async function getLease(id: string) {
-  const res = await axios.get(`${API_URL}/leases/${id}`);
-  return res.data;
+export async function getLease(_id?: string): Promise<any> {
+  const res = await axios.get('/api/leases/my', { headers: getHeaders() })
+  return unwrap(res)
 }
 
-export async function getPayments(id: string) {
-  const res = await axios.get(`${API_URL}/payments/${id}`);
-  return res.data;
+export async function getPayments(_id?: string): Promise<any[]> {
+  const res = await axios.get('/api/payments/my', { headers: getHeaders() })
+  const data = unwrap(res)
+  return Array.isArray(data) ? data : []
 }
 
-export async function getMaintenanceRequests(id: string) {
-  const res = await axios.get(`${API_URL}/maintenance/${id}`);
-  return res.data;
+export async function getMaintenanceRequests(_id?: string): Promise<any[]> {
+  const res = await axios.get('/api/maintenance/my', { headers: getHeaders() })
+  const data = unwrap(res)
+  if (Array.isArray(data)) return data
+  if (Array.isArray(data?.requests)) return data.requests
+  return []
 }
 
-export async function getMessages(id: string) {
-  const res = await axios.get(`${API_URL}/messages/${id}`);
-  return res.data;
+export async function getMessages(_id?: string): Promise<any[]> {
+  const res = await axios.get('/api/messages/conversations', { headers: getHeaders() })
+  const data = unwrap(res)
+  return Array.isArray(data) ? data : []
 }

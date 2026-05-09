@@ -33,7 +33,10 @@ const filters = ref<{ search: string; role: 'all' | AdminRole; status: 'all' | A
   status: 'all',
 })
 
-const managerRequests = ref<ManagerRoleRequestItem[]>([])
+const managerRequests     = ref<ManagerRoleRequestItem[]>([])
+const viewingManagerReq   = ref<ManagerRoleRequestItem | null>(null)
+const rejectReason        = ref('')
+const confirmRejectId     = ref('')
 
 async function navigate(section: string) {
   activeSection.value = section
@@ -52,25 +55,24 @@ async function fetchManagerRequests() {
   }
 }
 
+function viewManagerRequest(r: ManagerRoleRequestItem) { viewingManagerReq.value = r }
+function closeManagerReqModal() { viewingManagerReq.value = null; confirmRejectId.value = ''; rejectReason.value = '' }
+
 async function approveManagerRequest(id: string) {
-  if (!window.confirm('Approve this manager application?')) return
   try {
     await managerRequestService.review(id, { status: 'APPROVED' })
+    closeManagerReqModal()
     await fetchManagerRequests()
-  } catch (e: any) {
-    error.value = e?.message ?? 'Failed to approve request.'
-  }
+  } catch (e: any) { error.value = e?.message ?? 'Failed to approve request.' }
 }
 
 async function rejectManagerRequest(id: string) {
-  const reason = window.prompt('Reason for rejection:')
-  if (reason === null) return
+  if (!confirmRejectId.value) { confirmRejectId.value = id; return }
   try {
-    await managerRequestService.review(id, { status: 'REJECTED', review_notes: reason || 'Rejected by admin' })
+    await managerRequestService.review(id, { status: 'REJECTED', review_notes: rejectReason.value || 'Rejected by admin' })
+    closeManagerReqModal()
     await fetchManagerRequests()
-  } catch (e: any) {
-    error.value = e?.message ?? 'Failed to reject request.'
-  }
+  } catch (e: any) { error.value = e?.message ?? 'Failed to reject request.' }
 }
 
 function handleLogout() {
@@ -362,9 +364,10 @@ onMounted(() => {
                   <td>{{ r.room_count }}</td>
                   <td>{{ r.address }}</td>
                   <td><span class="badge" :class="r.status.toLowerCase()">{{ r.status }}</span></td>
-                  <td>
+                  <td style="display:flex;gap:6px;">
+                    <button class="action-btn view"    @click="viewManagerRequest(r)">View</button>
                     <button class="action-btn approve" @click="approveManagerRequest(r.id)">Approve</button>
-                    <button class="action-btn reject" @click="rejectManagerRequest(r.id)">Reject</button>
+                    <button class="action-btn reject"  @click="rejectManagerRequest(r.id)">Reject</button>
                   </td>
                 </tr>
               </tbody>
@@ -514,6 +517,45 @@ onMounted(() => {
         </section>
       </main>
     </div>
+
+    <!-- ── Manager Request View Modal ────────────────────────────────────── -->
+    <Teleport to="body">
+      <div v-if="viewingManagerReq" class="modal-overlay" @click.self="closeManagerReqModal">
+        <div class="modal-card">
+          <button class="modal-close" @click="closeManagerReqModal">✕</button>
+          <div class="modal-header">
+            <div class="modal-icon">&#127970;</div>
+            <h2>Manager Application</h2>
+            <p class="modal-sub">Submitted application details</p>
+          </div>
+
+          <div class="view-grid">
+            <div class="view-field"><span class="vf-label">Property Name</span><span class="vf-val">{{ viewingManagerReq.property_name }}</span></div>
+            <div class="view-field"><span class="vf-label">Location / City</span><span class="vf-val">{{ viewingManagerReq.location }}</span></div>
+            <div class="view-field"><span class="vf-label">Full Address</span><span class="vf-val">{{ viewingManagerReq.address }}</span></div>
+            <div class="view-field"><span class="vf-label">No. of Rooms</span><span class="vf-val">{{ viewingManagerReq.room_count }}</span></div>
+            <div class="view-field" v-if="(viewingManagerReq as any).description"><span class="vf-label">Description</span><span class="vf-val">{{ (viewingManagerReq as any).description }}</span></div>
+            <div class="view-field"><span class="vf-label">Status</span><span class="vf-val"><span class="badge" :class="viewingManagerReq.status.toLowerCase()">{{ viewingManagerReq.status }}</span></span></div>
+            <div class="view-field"><span class="vf-label">Submitted</span><span class="vf-val">{{ new Date(viewingManagerReq.created_at).toLocaleString() }}</span></div>
+            <div class="view-field" v-if="viewingManagerReq.review_notes"><span class="vf-label">Review Notes</span><span class="vf-val">{{ viewingManagerReq.review_notes }}</span></div>
+          </div>
+
+          <template v-if="viewingManagerReq.status === 'PENDING'">
+            <div v-if="confirmRejectId === viewingManagerReq.id" class="field" style="margin-top:8px">
+              <label style="font-size:13px;color:#4b5563;font-weight:500">Reason for rejection</label>
+              <input v-model="rejectReason" type="text" placeholder="Optional reason"
+                     style="margin-top:4px;padding:8px 14px;border-radius:12px;border:1px solid #e0ddf7;font-size:13px;width:100%;box-sizing:border-box;outline:none" />
+            </div>
+            <div class="modal-actions">
+              <button class="btn-approve" @click="approveManagerRequest(viewingManagerReq.id)">&#10003; Approve</button>
+              <button class="btn-reject"  @click="rejectManagerRequest(viewingManagerReq.id)">
+                {{ confirmRejectId === viewingManagerReq.id ? 'Confirm Reject' : '&#10007; Reject' }}
+              </button>
+            </div>
+          </template>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -636,8 +678,9 @@ onMounted(() => {
 .badge.approved { background: #dcfce7; color: #166534; }
 .badge.rejected { background: #fee2e2; color: #991b1b; }
 .action-btn { padding: 4px 10px; border-radius: 6px; border: none; font-size: 12px; font-weight: 600; cursor: pointer; margin-right: 6px; }
-.action-btn.approve { background: #dcfce7; color: #166534; }
-.action-btn.reject  { background: #fee2e2; color: #991b1b; }
+.action-btn.approve { background: #dcfce7; color: #16a34a; }
+.action-btn.reject  { background: #fee2e2; color: #dc2626; }
+.action-btn.view    { background: #eff6ff; color: #2563eb; }
 
 /* ── Section Loading ───────────────────────────────────────── */
 .section-loading {
@@ -807,4 +850,25 @@ onMounted(() => {
     padding: 20px 16px;
   }
 }
+</style>
+
+<style>
+/* ── Admin Manager-Request Modal (Teleport – not scoped) ───── */
+.modal-overlay { position:fixed;inset:0;background:rgba(17,24,39,.5);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:1000;padding:24px; }
+.modal-card    { position:relative;width:100%;max-width:480px;background:#fff;border-radius:24px;padding:32px 36px 28px;box-shadow:0 24px 64px rgba(0,0,0,.15);display:flex;flex-direction:column;gap:14px;max-height:90vh;overflow-y:auto; }
+.modal-close   { position:absolute;top:14px;right:16px;background:none;border:none;font-size:18px;color:#9ca3af;cursor:pointer; }
+.modal-close:hover { color:#111827; }
+.modal-header  { text-align:center; }
+.modal-icon    { font-size:40px;margin-bottom:6px; }
+.modal-header h2 { font-size:20px;font-weight:800;color:#111827;margin:0 0 4px; }
+.modal-sub     { font-size:13px;color:#6b7280;margin:0; }
+.view-grid     { display:flex;flex-direction:column;gap:8px;margin-top:4px; }
+.view-field    { display:flex;flex-direction:column;gap:2px;padding:10px 14px;background:#f9fafb;border-radius:10px; }
+.vf-label      { font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em; }
+.vf-val        { font-size:14px;color:#111827;font-weight:500; }
+.modal-actions { display:flex;gap:10px;margin-top:4px; }
+.btn-approve   { flex:1;padding:10px;border-radius:999px;border:none;background:#dcfce7;color:#16a34a;font-size:14px;font-weight:600;cursor:pointer; }
+.btn-approve:hover { opacity:.85; }
+.btn-reject    { flex:1;padding:10px;border-radius:999px;border:none;background:#fee2e2;color:#dc2626;font-size:14px;font-weight:600;cursor:pointer; }
+.btn-reject:hover  { opacity:.85; }
 </style>

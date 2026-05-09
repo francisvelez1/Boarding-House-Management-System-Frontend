@@ -23,11 +23,28 @@ export abstract class BaseService {
       return config
     })
 
-    // Auto-logout on 401
+    // Auto-refresh on 401, then retry once; logout only if refresh also fails
     this.http.interceptors.response.use(
       (res) => res,
-      (err) => {
-        if (err.response?.status === 401) useAuthStore().logout()
+      async (err) => {
+        const original = err.config
+        if (err.response?.status === 401 && !original._retry) {
+          original._retry = true
+          const auth = useAuthStore()
+          const rt   = auth.refreshToken
+          if (rt) {
+            try {
+              const { data } = await axios.post('/api/auth/refresh', { refresh_token: rt })
+              auth.updateToken(data.access_token)
+              original.headers.Authorization = `Bearer ${data.access_token}`
+              return this.http(original)
+            } catch {
+              auth.logout()
+            }
+          } else {
+            auth.logout()
+          }
+        }
         return Promise.reject(this.normalizeError(err))
       },
     )

@@ -5,6 +5,7 @@ import {
   CARD_BG, ICON_COLOR, STATUS_COLOR, STATUS_LABEL, FLOOR_LABEL, TYPE_LABEL,
   formatPrice, moveInTotal, requiredDeposit,
 } from '../../models/room'
+import type { ManagerInfo } from '../../models/room'
 
 defineProps<{ room: Room }>()
 const emit = defineEmits<{ (e: 'inquire', room: Room): void }>()
@@ -69,6 +70,24 @@ const emit = defineEmits<{ (e: 'inquire', room: Room): void }>()
         <span v-if="room.amenities.filter(a => !a.is_working).length" class="amenity-tag broken">
           {{ room.amenities.filter(a => !a.is_working).length }} broken
         </span>
+      </div>
+
+      <!-- Manager Info -->
+      <div v-if="room.manager_info" class="manager-info">
+        <div class="mi-avatar">{{ room.manager_info.full_name.slice(0,1).toUpperCase() }}</div>
+        <div class="mi-body">
+          <div class="mi-name">{{ room.manager_info.full_name }}</div>
+          <div class="mi-contact">
+            <span v-if="room.manager_info.phone">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81 19.79 19.79 0 01.12 1.21 2 2 0 012.11 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.91 7.09a16 16 0 006 6l.45-.45a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 14.92z"/></svg>
+              {{ room.manager_info.phone }}
+            </span>
+            <span>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+              {{ room.manager_info.email }}
+            </span>
+          </div>
+        </div>
       </div>
 
       <!-- Move-in breakdown -->
@@ -187,5 +206,31 @@ const emit = defineEmits<{ (e: 'inquire', room: Room): void }>()
 .btn-inquire:hover:not(:disabled) { background: #ae68fa; color: #fff; }
 .btn-inquire:disabled {
   background: rgba(255,255,255,0.08); color: #6b7280; cursor: not-allowed;
+}
+
+/* Manager info */
+.manager-info {
+  display: flex; align-items: center; gap: 10px;
+  background: #f5f3ff; border-radius: 10px;
+  padding: 8px 12px; margin-bottom: 12px;
+}
+.mi-avatar {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: linear-gradient(135deg, #ae68fa, #f1966e);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 700; color: #fff; flex-shrink: 0;
+}
+.mi-body { min-width: 0; }
+.mi-name {
+  font-size: 12px; font-weight: 700; color: #3730a3;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.mi-contact {
+  display: flex; flex-direction: column; gap: 2px; margin-top: 2px;
+}
+.mi-contact span {
+  display: flex; align-items: center; gap: 4px;
+  font-size: 10px; color: #6b7280;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 </style>
