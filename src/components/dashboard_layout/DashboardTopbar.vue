@@ -27,11 +27,15 @@ const pageTitle = computed(() => {
     settings: 'System settings',
   }
   const managerLabels: Record<string, string> = {
-    dashboard: 'Manager dashboard',
-    rooms: 'Room operations',
-    leases: 'Lease operations',
-    payments: 'Payment tracking',
+    dashboard:   'Manager dashboard',
+    tenants:     'Tenants',
+    rooms:       'Room operations',
+    leases:      'Lease management',
+    payments:    'Payment tracking',
+    reports:     'Reports',
     maintenance: 'Maintenance queue',
+    messages:    'Messages',
+    bookings:    'Tenant applications',
   }
   const labels = props.variant === 'manager' ? managerLabels : adminLabels
   return labels[props.activeSection] ?? (props.variant === 'manager' ? 'Manager' : 'Admin')

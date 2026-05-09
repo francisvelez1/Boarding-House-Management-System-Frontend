@@ -62,6 +62,20 @@ export interface ManagerMaintenance {
   priority: string
   status: string
   created_at: string
+  tenant_id?: string
+  description?: string
+  assigned_to?: string
+}
+
+export interface PaymentStats {
+  total_payments?: number
+  paid_count?: number
+  unpaid_count?: number
+  partial_count?: number
+  total_collected?: number
+  total_outstanding?: number
+  monthly_revenue?: number
+  monthly_collected?: number
 }
 
 class ManagerService extends BaseService {
@@ -73,11 +87,11 @@ class ManagerService extends BaseService {
     return this.get('/dashboard')
   }
 
-  listRooms(limit = 8): Promise<ManagerRoom[]> {
+  listRooms(limit = 50): Promise<ManagerRoom[]> {
     return this.get('/rooms', { params: { limit } })
   }
 
-  listLeases(limit = 8): Promise<ManagerLease[]> {
+  listLeases(limit = 50): Promise<ManagerLease[]> {
     return this.get('/leases', { params: { limit } })
   }
 
@@ -85,8 +99,12 @@ class ManagerService extends BaseService {
     return this.get('/payments')
   }
 
-  listMaintenance(): Promise<ManagerMaintenance[]> {
-    return this.get('/maintenance')
+  listMaintenance(status?: string): Promise<ManagerMaintenance[]> {
+    return this.get('/maintenance', status ? { params: { status } } : undefined)
+  }
+
+  getPaymentStats(): Promise<PaymentStats> {
+    return this.get('/payments/stats')
   }
 }
 
