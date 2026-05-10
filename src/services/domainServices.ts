@@ -69,6 +69,9 @@ export interface RoomCreateRequest {
   floor_level?:        FloorLevel
   room_type?:          RoomType
   description?:        string
+  property_name?:      string
+  location?:           string
+  address?:            string
   max_occupants?:      number
   monthly_rate:        number
   deposit_multiplier?: number
@@ -82,6 +85,9 @@ export interface RoomUpdateRequest {
   floor_level?:        FloorLevel
   room_type?:          RoomType
   description?:        string
+  property_name?:      string
+  location?:           string
+  address?:            string
   max_occupants?:      number
   monthly_rate?:       number
   deposit_multiplier?: number
@@ -339,6 +345,12 @@ class RoomService extends BaseService {
   // ADMIN, MANAGER
   removeImage(roomId: string, imageUrl: string): Promise<ApiResponse<RoomResponse>> {
     return this.delete(`/${roomId}/images`, { data: { image_url: imageUrl } })
+  }
+
+  // ── PATCH /api/rooms/{room_id}/unassign ─────────────────────
+  // ADMIN, MANAGER — unassign tenant and free room
+  unassignRoom(roomId: string): Promise<ApiResponse<{ message: string }>> {
+    return this.patch(`/${roomId}/unassign`)
   }
 
   // ── DELETE /api/rooms/{room_id} ──────────────────────────────

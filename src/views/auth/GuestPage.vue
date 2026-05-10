@@ -11,6 +11,7 @@ import RoomsGrid      from '@/components/layout/RoomsGrid.vue'
 import InquiryModal   from '@/components/layout/InquiryModal.vue'
 
 import { authService, type LoginCredentials, type LoginResponse, type RegisterPayload } from '../../services/authService'
+import { managerRequestService } from '../../services/managerRequestService'
 import { useAuthStore } from '../../stores/auth'
 
 import type { Room } from '../../models/room'
@@ -266,9 +267,7 @@ const handleLogin = async () => {
         return
       }
       
-      let redirect = '/tenant/dashboard'
-      if (auth.isAdmin)   redirect = '/admin'
-      if (auth.isManager) redirect = '/manager'
+      const redirect = auth.isAdmin ? '/admin' : auth.isManager ? '/manager' : '/tenant/dashboard'
       router.push(redirect)
     }, 1000)
 
@@ -363,16 +362,111 @@ function closeRegisterModal() {
   registerSuccess.value   = ''
 }
 
-const handleRegister = async () => {
-  registerError.value = ''; registerSuccess.value = ''; registerLoading.value = true
+const handleRegister = () => {
+  registerError.value = ''
+  const { username, email, password, firstName, lastName } = registerForm
+  if (!username.trim() || !email.trim() || !password || !firstName.trim() || !lastName.trim()) {
+    registerError.value = 'Please fill in all required fields.'
+    return
+  }
+  closeRegisterModal()
+  showRoleModal.value = true
+}
+
+// ─── Role Selection Modal ─────────────────────────────────────────────────────
+const showRoleModal      = ref(false)
+const showManagerAppModal = ref(false)
+const managerAppForm = reactive({
+  property_name: '',
+  location: '',
+  address: '',
+  room_count: 1,
+  description: '',
+})
+const managerAppError   = ref('')
+const managerAppSuccess = ref('')
+const managerAppLoading = ref(false)
+
+async function chooseTenant() {
+  showRoleModal.value = false
+  registerLoading.value = true
   try {
-    const data = await authService.register(registerForm)
-    registerSuccess.value = data?.message || 'Account created successfully!'
-    setTimeout(() => { closeRegisterModal(); openLoginModal() }, 1500)
+    await authService.register(registerForm)
+    const loginData: LoginResponse = await authService.login({
+      username_or_email: registerForm.username,
+      password: registerForm.password,
+    })
+    auth.login({
+      username:      loginData.username,
+      access_token:  loginData.access_token,
+      refresh_token: loginData.refresh_token,
+      role:          loginData.role,
+      id:            loginData.id,
+      email:         loginData.email,
+    })
+    router.push('/tenant/dashboard')
   } catch (err: any) {
-    registerError.value = err?.message || 'Unable to register. Please check your details.'
+    registerError.value = err?.message || 'Registration failed. Please try again.'
+    showRegisterModal.value = true
   } finally {
     registerLoading.value = false
+  }
+}
+
+function chooseManager() {
+  showRoleModal.value = false
+  managerAppError.value   = ''
+  managerAppSuccess.value = ''
+  managerAppForm.property_name = ''
+  managerAppForm.location      = ''
+  managerAppForm.address       = ''
+  managerAppForm.room_count    = 1
+  managerAppForm.description   = ''
+  showManagerAppModal.value = true
+}
+
+async function submitManagerApp() {
+  managerAppError.value = ''; managerAppLoading.value = true
+  try {
+    // Validate room_count is a valid integer >= 1
+    const roomCount = Number(managerAppForm.room_count)
+    if (!Number.isFinite(roomCount) || roomCount < 1 || !Number.isInteger(roomCount)) {
+      managerAppError.value = 'Please enter a valid number of rooms (minimum 1).'
+      managerAppLoading.value = false
+      return
+    }
+    // 1. Register (deferred — not called until user completes this form)
+    await authService.register(registerForm)
+    // 2. Auto-login with just-registered credentials
+    const loginData: LoginResponse = await authService.login({
+      username_or_email: registerForm.username,
+      password: registerForm.password,
+    })
+    auth.login({
+      username:      loginData.username,
+      access_token:  loginData.access_token,
+      refresh_token: loginData.refresh_token,
+      role:          loginData.role,
+      id:            loginData.id,
+      email:         loginData.email,
+    })
+    // Submit manager role application
+    const res = await managerRequestService.apply({
+      property_name: managerAppForm.property_name,
+      location:      managerAppForm.location,
+      address:       managerAppForm.address,
+      room_count:    roomCount,
+      description:   managerAppForm.description || undefined,
+    })
+    managerAppSuccess.value = res.message || 'Application submitted! Admin will review it.'
+    setTimeout(() => {
+      showManagerAppModal.value = false
+      router.push('/tenant/dashboard')
+    }, 1800)
+  } catch (err: any) {
+    managerAppError.value = err?.response?.data?.detail ?? err?.message ?? 'Failed to submit application.'
+  } finally {
+    managerAppLoading.value = false
   }
 }
 
@@ -628,7 +722,6 @@ const handleGoogleRegister = () => { window.location.href = 'http://localhost:80
           </div>
 
           <p v-if="registerError"   class="msg error">{{ registerError }}</p>
-          <p v-if="registerSuccess" class="msg success">{{ registerSuccess }} Redirecting to login…</p>
 
           <button class="btn-primary" :disabled="registerLoading" @click="handleRegister">
             {{ registerLoading ? 'Signing up…' : 'Signup' }}
@@ -639,6 +732,80 @@ const handleGoogleRegister = () => { window.location.href = 'http://localhost:80
             <button class="link-btn" @click="openLoginModal">Login</button>
           </p>
 
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- ── Role Selection Modal ──────────────────────────────────────────── -->
+    <Teleport to="body">
+      <div v-if="showRoleModal" class="modal-overlay">
+        <div class="modal-card role-card">
+          <div class="modal-header" style="text-align:center;align-items:center">
+            <div class="modal-icon">🏠</div>
+            <h2>Welcome to ResidEase!</h2>
+            <p class="modal-sub">Your account is ready. How will you use ResidEase?</p>
+          </div>
+          <div class="role-btns">
+            <button class="role-btn role-btn--tenant" @click="chooseTenant">
+              <span class="role-btn-icon">🙋</span>
+              <span class="role-btn-title">I'm a Tenant</span>
+              <span class="role-btn-sub">Browse and book a room</span>
+            </button>
+            <button class="role-btn role-btn--manager" @click="chooseManager">
+              <span class="role-btn-icon">🏢</span>
+              <span class="role-btn-title">Apply as Manager</span>
+              <span class="role-btn-sub">Manage boarding house properties</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- ── Manager Application Modal ────────────────────────────────────────── -->
+    <Teleport to="body">
+      <div v-if="showManagerAppModal" class="modal-overlay" @click.self="showManagerAppModal = false">
+        <div class="modal-card register-card">
+          <button class="modal-close" @click="showManagerAppModal = false">✕</button>
+
+          <template v-if="!managerAppSuccess">
+            <div class="modal-header">
+              <div class="modal-icon">🏢</div>
+              <h2>Manager Application</h2>
+              <p class="modal-sub">Tell us about your property. Admin will review and approve your application.</p>
+            </div>
+            <div class="field">
+              <label>Property Name</label>
+              <input v-model="managerAppForm.property_name" type="text" placeholder="e.g. Sunshine Boarding House" class="input" />
+            </div>
+            <div class="field">
+              <label>Location / City</label>
+              <input v-model="managerAppForm.location" type="text" placeholder="e.g. Cebu City" class="input" />
+            </div>
+            <div class="field">
+              <label>Full Address</label>
+              <input v-model="managerAppForm.address" type="text" placeholder="Street, Barangay, City" class="input" />
+            </div>
+            <div class="field">
+              <label>Number of Rooms</label>
+              <input v-model.number="managerAppForm.room_count" type="number" min="1" step="1" class="input" />
+            </div>
+            <div class="field">
+              <label>Description <span style="color:#9ca3af;font-weight:400">(optional)</span></label>
+              <textarea v-model="managerAppForm.description" class="input" rows="3" placeholder="Tell us more about your property…" style="resize:vertical"></textarea>
+            </div>
+            <p v-if="managerAppError" class="msg error">{{ managerAppError }}</p>
+            <button class="btn-primary" :disabled="managerAppLoading" @click="submitManagerApp">
+              {{ managerAppLoading ? 'Submitting…' : 'Submit Application' }}
+            </button>
+          </template>
+
+          <template v-else>
+            <div style="text-align:center;padding:24px 0">
+              <div class="modal-icon">✅</div>
+              <h2 style="font-size:20px;font-weight:800;color:#111827;margin:0 0 8px">Application Sent!</h2>
+              <p style="color:#6b7280;font-size:14px">{{ managerAppSuccess }}<br>You'll be redirected to your dashboard.</p>
+            </div>
+          </template>
         </div>
       </div>
     </Teleport>
@@ -681,6 +848,21 @@ const handleGoogleRegister = () => { window.location.href = 'http://localhost:80
 
 .login-card    { max-width: 440px; }
 .register-card { max-width: 480px; }
+.role-card     { max-width: 440px; }
+
+/* ── Role selection buttons ─────────────────────────────────────────────── */
+.role-btns { display: flex; flex-direction: column; gap: 12px; }
+.role-btn {
+  display: flex; align-items: center; gap: 14px;
+  padding: 18px 20px; border-radius: 18px; border: 2px solid #e0ddf7;
+  background: #faf7ff; cursor: pointer; text-align: left;
+  transition: border-color .15s, box-shadow .15s;
+}
+.role-btn:hover { border-color: #ae68fa; box-shadow: 0 0 0 3px rgba(174,104,250,.12); }
+.role-btn--manager:hover { border-color: #f1966e; box-shadow: 0 0 0 3px rgba(241,150,110,.12); }
+.role-btn-icon  { font-size: 28px; flex-shrink: 0; }
+.role-btn-title { font-size: 15px; font-weight: 700; color: #111827; display: block; }
+.role-btn-sub   { font-size: 12px; color: #6b7280; display: block; margin-top: 2px; }
 
 @keyframes slideUp {
   from { opacity: 0; transform: translateY(16px); }

@@ -47,6 +47,10 @@ class AuthService extends BaseService {
   refreshToken(refreshToken: string): Promise<{ access_token: string }> {
     return this.post<{ access_token: string }>('/refresh', { refresh_token: refreshToken })
   }
+
+  deleteAccount(): Promise<{ message: string }> {
+    return this.delete<{ message: string }>('/me')
+  }
 }
 
 export const authService = new AuthService()

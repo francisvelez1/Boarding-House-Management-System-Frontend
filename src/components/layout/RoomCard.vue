@@ -3,8 +3,9 @@ import type { Room } from '../../models/room'
 import {
   RoomStatus,
   CARD_BG, ICON_COLOR, STATUS_COLOR, STATUS_LABEL, FLOOR_LABEL, TYPE_LABEL,
-  formatPrice, moveInTotal, requiredDeposit,
+  formatPrice, moveInTotal, requiredDeposit, requiredAdvance,
 } from '../../models/room'
+import type { ManagerInfo } from '../../models/room'
 
 defineProps<{ room: Room }>()
 const emit = defineEmits<{ (e: 'inquire', room: Room): void }>()
@@ -38,11 +39,22 @@ const emit = defineEmits<{ (e: 'inquire', room: Room): void }>()
 
     <!-- Info -->
     <div class="room-info">
+      <!-- Property Header -->
+      <div v-if="room.property_name || room.location" class="property-header">
+        <div v-if="room.property_name" class="property-name">{{ room.property_name }}</div>
+        <div v-if="room.location" class="property-location">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+          {{ room.location }}
+        </div>
+      </div>
+
+      <!-- Room Title -->
       <div class="room-name">
         Room {{ room.room_number }}
         <span class="type-tag">{{ TYPE_LABEL[room.room_type] }}</span>
       </div>
 
+      <!-- Room Meta -->
       <div class="room-meta">
         <span v-if="room.floor_level" class="meta-item">
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -50,11 +62,35 @@ const emit = defineEmits<{ (e: 'inquire', room: Room): void }>()
           </svg>
           {{ FLOOR_LABEL[room.floor_level] }}
         </span>
-        <span v-if="room.dimension?.length_sqm && room.dimension?.width_sqm" class="meta-item">
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M3 3h18v18H3z"/>
-          </svg>
-          {{ (room.dimension.length_sqm * room.dimension.width_sqm).toFixed(1) }} sqm
+        <span class="meta-item">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+          Max {{ room.max_occupants }}
+        </span>
+      </div>
+
+      <!-- Description -->
+      <div v-if="room.description" class="room-description">
+        {{ room.description }}
+      </div>
+
+      <!-- Full Address -->
+      <div v-if="room.address" class="room-address">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        {{ room.address }}
+      </div>
+
+      <!-- Dimensions -->
+      <div v-if="room.dimension?.length_sqm || room.dimension?.width_sqm" class="dimension-row">
+        <span v-if="room.dimension.length_sqm" class="dim-item">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h18v18H3z"/></svg>
+          Length: {{ room.dimension.length_sqm }} sqm
+        </span>
+        <span v-if="room.dimension.width_sqm" class="dim-item">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h18v18H3z"/></svg>
+          Width: {{ room.dimension.width_sqm }} sqm
+        </span>
+        <span v-if="room.dimension.length_sqm && room.dimension.width_sqm" class="dim-item dim-area">
+          Area: {{ (room.dimension.length_sqm * room.dimension.width_sqm).toFixed(1) }} sqm
         </span>
       </div>
 
@@ -71,7 +107,25 @@ const emit = defineEmits<{ (e: 'inquire', room: Room): void }>()
         </span>
       </div>
 
-      <!-- Move-in breakdown -->
+      <!-- Manager Info -->
+      <div v-if="room.manager_info" class="manager-info">
+        <div class="mi-avatar">{{ room.manager_info.full_name.slice(0,1).toUpperCase() }}</div>
+        <div class="mi-body">
+          <div class="mi-name">{{ room.manager_info.full_name }}</div>
+          <div class="mi-contact">
+            <span v-if="room.manager_info.phone">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81 19.79 19.79 0 01.12 1.21 2 2 0 012.11 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.91 7.09a16 16 0 006 6l.45-.45a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 14.92z"/></svg>
+              {{ room.manager_info.phone }}
+            </span>
+            <span>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+              {{ room.manager_info.email }}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Financial breakdown -->
       <div class="price-breakdown">
         <div class="price-row main">
           <span>Monthly rent</span>
@@ -80,6 +134,10 @@ const emit = defineEmits<{ (e: 'inquire', room: Room): void }>()
         <div class="price-row sub">
           <span>Deposit (×{{ room.deposit_multiplier }})</span>
           <span>{{ formatPrice(requiredDeposit(room)) }}</span>
+        </div>
+        <div class="price-row sub">
+          <span>Advance (×{{ room.advance_multiplier }})</span>
+          <span>{{ formatPrice(requiredAdvance(room)) }}</span>
         </div>
         <div class="price-divider"></div>
         <div class="price-row move-in">
@@ -149,6 +207,47 @@ const emit = defineEmits<{ (e: 'inquire', room: Room): void }>()
   font-size: 11px; color: #9ca3af;
 }
 
+/* Property header */
+.property-header {
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+}
+.property-name {
+  font-size: 13px; font-weight: 700; color: #3730a3;
+}
+.property-location {
+  display: flex; align-items: center; gap: 4px;
+  font-size: 11px; color: #6b7280; margin-top: 2px;
+}
+
+/* Description & Address */
+.room-description {
+  font-size: 12px; color: #4b5563; line-height: 1.5;
+  margin-bottom: 10px; padding: 8px; border-radius: 8px;
+  background: rgba(174,104,250,0.05);
+}
+.room-address {
+  display: flex; align-items: flex-start; gap: 6px;
+  font-size: 11px; color: #6b7280; line-height: 1.4;
+  margin-bottom: 10px;
+}
+
+/* Dimensions */
+.dimension-row {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  margin-bottom: 10px;
+}
+.dim-item {
+  display: flex; align-items: center; gap: 4px;
+  font-size: 11px; color: #6b7280;
+  background: rgba(0,0,0,0.04); padding: 3px 8px;
+  border-radius: 6px;
+}
+.dim-area {
+  color: #4b5563; font-weight: 600;
+}
+
 .amenity-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 14px; }
 .amenity-tag {
   background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.1);
@@ -187,5 +286,31 @@ const emit = defineEmits<{ (e: 'inquire', room: Room): void }>()
 .btn-inquire:hover:not(:disabled) { background: #ae68fa; color: #fff; }
 .btn-inquire:disabled {
   background: rgba(255,255,255,0.08); color: #6b7280; cursor: not-allowed;
+}
+
+/* Manager info */
+.manager-info {
+  display: flex; align-items: center; gap: 10px;
+  background: #f5f3ff; border-radius: 10px;
+  padding: 8px 12px; margin-bottom: 12px;
+}
+.mi-avatar {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: linear-gradient(135deg, #ae68fa, #f1966e);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 700; color: #fff; flex-shrink: 0;
+}
+.mi-body { min-width: 0; }
+.mi-name {
+  font-size: 12px; font-weight: 700; color: #3730a3;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.mi-contact {
+  display: flex; flex-direction: column; gap: 2px; margin-top: 2px;
+}
+.mi-contact span {
+  display: flex; align-items: center; gap: 4px;
+  font-size: 10px; color: #6b7280;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 </style>
