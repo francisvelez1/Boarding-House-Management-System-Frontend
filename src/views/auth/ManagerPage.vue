@@ -19,7 +19,6 @@ import { notificationService, type NotificationItem } from '../../services/notif
 
 type Section = 'dashboard' | 'tenants' | 'rooms' | 'leases' | 'payments' | 'reports' | 'maintenance' | 'messages' | 'bookings'
 
-// ── Local type extensions (adds fields present in API response but missing from service types) ──
 type ExtendedManagerPayment = ManagerPayment & {
   type?: string
   receipt_number?: string
@@ -144,18 +143,43 @@ async function submitAddRoom() {
   }
 }
 
+// ── ROOMS: removeRoom handles both unassign (occupied) and delete (vacant) ──
 async function removeRoom(id: string, roomNumber: string, roomStatus: string) {
   const isOccupied = roomStatus === 'OCCUPIED' || roomStatus === 'RESERVED'
+
   if (isOccupied) {
-    if (!window.confirm(`Unassign tenant from room ${roomNumber} and mark it as vacant?`)) return
+    if (!window.confirm(
+      `Unassign tenant from room ${roomNumber}?\n\nThis will:\n• Free the room (set to Vacant)\n• Delete their booking record\n• Remove their tenant profile`
+    )) return
+
     try {
-      await roomService.unassignRoom(id)
+      // Find the tenant linked to this room from either active tenants or approved bookings
+      const linkedTenant = tenants.value.find(t => t.room_id === id)
+      const linkedBooking = approvedBookings.value.find(b => b.room_id === id)
+
+      if (linkedTenant?.id) {
+        // Full cleanup via the unassign endpoint
+        await managerService.unassignTenant(linkedTenant.id)
+      } else if (linkedBooking) {
+        // Tenant profile not created yet — just reject the booking + free room
+        await bookingService.review(linkedBooking.id, {
+          status: 'REJECTED',
+          review_notes: 'Unassigned by manager'
+        })
+        await roomService.updateStatus(id, 'VACANT')
+      } else {
+        // Fallback: just unassign the room
+        await roomService.unassignRoom(id)
+      }
+
       await loadManagerData()
     } catch (e: any) {
-      error.value = e?.response?.data?.detail ?? e?.message ?? 'Failed to unassign tenant from room.'
+      error.value = e?.response?.data?.detail ?? e?.message ?? 'Failed to unassign tenant.'
     }
     return
   }
+
+  // Vacant or maintenance room — permanent delete
   if (!window.confirm(`Remove room ${roomNumber}? This cannot be undone.`)) return
   try {
     await roomService.deleteRoom(id)
@@ -187,6 +211,8 @@ async function setRoomVacant(id: string) {
     error.value = e?.response?.data?.detail ?? e?.message ?? 'Failed to set room as vacant.'
   }
 }
+
+// ── TENANTS computed ──────────────────────────────────────────────────────────
 
 const activeTenants = computed(() => tenants.value.filter(t => t.status === 'ACTIVE'))
 const filteredTenants = computed(() =>
@@ -246,7 +272,9 @@ const allTenantsDisplay = computed(() => {
 
 const filteredRooms = computed(() =>
   roomSearch.value
-    ? rooms.value.filter(r => r.room_number.toLowerCase().includes(roomSearch.value.toLowerCase()) || r.status.toLowerCase().includes(roomSearch.value.toLowerCase()))
+    ? rooms.value.filter(r =>
+        r.room_number.toLowerCase().includes(roomSearch.value.toLowerCase()) ||
+        r.status.toLowerCase().includes(roomSearch.value.toLowerCase()))
     : rooms.value
 )
 
@@ -369,25 +397,87 @@ async function loadManagerData() {
 function viewBooking(b: BookingItem) { viewingBooking.value = b }
 function closeBookingModal() { viewingBooking.value = null; confirmRejectId.value = ''; rejectReason.value = '' }
 
+// ── APPROVE booking ───────────────────────────────────────────────────────────
 async function approveBooking(id: string) {
   try {
     await bookingService.review(id, { status: 'APPROVED', review_notes: 'Approved by manager' })
     closeBookingModal()
     await loadManagerData()
-  } catch (e: any) { error.value = e?.message ?? 'Failed to approve booking.' }
+  } catch (e: any) {
+    error.value = e?.message ?? 'Failed to approve booking.'
+  }
 }
 
+// ── REJECT booking — also frees the room and cleans up any tenant record ─────
 async function rejectBooking(id: string) {
-  if (!confirmRejectId.value) { confirmRejectId.value = id; return }
+  // First click: ask for confirmation + optional reason
+  if (!confirmRejectId.value) {
+    confirmRejectId.value = id
+    return
+  }
+
   try {
-    await bookingService.review(id, { status: 'REJECTED', review_notes: rejectReason.value || 'Rejected by manager' })
+    // 1. Reject the booking
+    await bookingService.review(id, {
+      status: 'REJECTED',
+      review_notes: rejectReason.value || 'Rejected by manager'
+    })
+
+    // 2. Find the booking to get its room_id and user_id
+    const rejected = [...bookings.value, ...approvedBookings.value].find(b => b.id === id)
+
+    if (rejected) {
+      // 3. Free the room if it was reserved for this booking
+      if (rejected.room_id) {
+        const room = rooms.value.find(r => r.id === rejected.room_id)
+        if (room && (room.status === 'RESERVED' || room.status === 'OCCUPIED')) {
+          await roomService.updateStatus(rejected.room_id, 'VACANT')
+        }
+      }
+
+      // 4. If a tenant profile was already created for this user, delete it too
+      const linkedTenant = tenants.value.find(t => t.user_id === rejected.user_id)
+      if (linkedTenant?.id) {
+        await managerService.unassignTenant(linkedTenant.id)
+      }
+    }
+
+    // 5. Remove from local state immediately for snappy UI
     bookings.value         = bookings.value.filter(b => b.id !== id)
     approvedBookings.value = approvedBookings.value.filter(b => b.id !== id)
-    const rejected = [...bookings.value, ...approvedBookings.value].find(b => b.id === id)
-    if (rejected) tenants.value = tenants.value.filter(t => t.user_id !== rejected.user_id)
+    if (rejected) {
+      tenants.value = tenants.value.filter(t => t.user_id !== rejected.user_id)
+    }
+
     closeBookingModal()
     await loadManagerData()
-  } catch (e: any) { error.value = e?.message ?? 'Failed to reject booking.' }
+  } catch (e: any) {
+    error.value = e?.message ?? 'Failed to reject booking.'
+  }
+}
+
+// ── CONFIRM reserved tenant → mark as OCCUPIED ───────────────────────────────
+async function confirmTenant(bookingId: string, fullName: string) {
+  if (!window.confirm(`Confirm ${fullName} as an active occupant?`)) return
+  try {
+    await bookingService.review(bookingId, {
+      status: 'CONFIRMED',
+      review_notes: 'Confirmed as occupant by manager'
+    })
+
+    // Optimistically update room status in local state
+    const booking = approvedBookings.value.find(b => b.id === bookingId)
+    if (booking) {
+      const room = rooms.value.find(r => r.id === booking.room_id)
+      if (room) room.status = 'OCCUPIED'
+      // Move booking out of reserved into active tenants display
+      approvedBookings.value = approvedBookings.value.filter(b => b.id !== bookingId)
+    }
+
+    await loadManagerData()
+  } catch (e: any) {
+    error.value = e?.response?.data?.detail ?? e?.message ?? 'Failed to confirm tenant.'
+  }
 }
 
 async function updateMaintenanceStatus(id: string, action: 'start' | 'complete' | 'close') {
@@ -455,7 +545,6 @@ function onPaymentTenantChange() {
   }
 }
 
-// ── FIX: was posting to /api/payments/cash (wrong prefix → 403) ──────────────
 async function submitPayment() {
   paymentError.value   = ''
   paymentSuccess.value = ''
@@ -479,14 +568,14 @@ async function submitPayment() {
     if (paymentForm.value.period_start) payload.period_start = new Date(paymentForm.value.period_start).toISOString()
     if (paymentForm.value.period_end)   payload.period_end   = new Date(paymentForm.value.period_end).toISOString()
 
-    const res = await fetch('/api/manager/payments', {   // ✅ fixed: was /api/payments/cash
+    const res = await fetch('/api/manager/payments', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${auth.token}` },
       body:    JSON.stringify(payload),
     })
     const json = await res.json()
     if (!res.ok) throw new Error(json?.detail ?? json?.message ?? 'Failed to record payment.')
-    paymentSuccess.value = `Payment recorded! Receipt: ${json.receipt_number ?? '—'}`  // ✅ fixed: was json.data?.receipt_number
+    paymentSuccess.value = `Payment recorded! Receipt: ${json.receipt_number ?? '—'}`
     await loadManagerData()
   } catch (e: any) {
     paymentError.value = e?.message ?? 'Failed to record payment.'
@@ -495,10 +584,9 @@ async function submitPayment() {
   }
 }
 
-// ── FIX: was calling /api/payments/:id/confirm (wrong prefix → 403) ──────────
 async function confirmPayment(paymentId: string) {
   try {
-    const res = await fetch(`/api/manager/payments/${paymentId}/confirm`, {   // ✅ fixed: was /api/payments/
+    const res = await fetch(`/api/manager/payments/${paymentId}/confirm`, {
       method:  'PATCH',
       headers: { Authorization: `Bearer ${auth.token}` },
     })
@@ -567,7 +655,6 @@ async function confirmPayment(paymentId: string) {
               <div class="sc-trend up">▲ {{ tenantStats?.active ?? 0 }} active</div>
               <div class="sc-sparkline"></div>
             </div>
-
             <div class="stat-card sc-teal">
               <div class="sc-top">
                 <span class="sc-label">Occupied rooms</span>
@@ -579,7 +666,6 @@ async function confirmPayment(paymentId: string) {
               <div class="sc-trend neutral">{{ Math.round(dashboard?.rooms?.occupancy_rate_pct ?? 0) }}% occupancy</div>
               <div class="sc-sparkline"></div>
             </div>
-
             <div class="stat-card sc-yellow">
               <div class="sc-top">
                 <span class="sc-label">Monthly revenue</span>
@@ -591,7 +677,6 @@ async function confirmPayment(paymentId: string) {
               <div class="sc-trend up">▲ total collected</div>
               <div class="sc-sparkline"></div>
             </div>
-
             <div class="stat-card sc-red">
               <div class="sc-top">
                 <span class="sc-label">Unpaid rent</span>
@@ -606,7 +691,6 @@ async function confirmPayment(paymentId: string) {
           </div>
 
           <div class="panels-row">
-            <!-- Recent payments -->
             <div class="panel">
               <div class="panel-hdr">
                 <span class="panel-title">Recent payments</span>
@@ -625,8 +709,6 @@ async function confirmPayment(paymentId: string) {
                 </tbody>
               </table>
             </div>
-
-            <!-- Maintenance queue -->
             <div class="panel">
               <div class="panel-hdr">
                 <span class="panel-title">Maintenance queue</span>
@@ -644,8 +726,6 @@ async function confirmPayment(paymentId: string) {
                 <div v-if="!loading && maintenance.length === 0" class="td-muted">No maintenance requests.</div>
               </div>
             </div>
-
-            <!-- Recent activity -->
             <div class="panel">
               <div class="panel-hdr">
                 <span class="panel-title">Recent activity</span>
@@ -665,7 +745,6 @@ async function confirmPayment(paymentId: string) {
             </div>
           </div>
 
-          <!-- Quick table: pending applications -->
           <div v-if="bookings.length > 0" class="panel mt16">
             <div class="panel-hdr">
               <span class="panel-title">Pending applications ({{ bookings.length }})</span>
@@ -678,9 +757,7 @@ async function confirmPayment(paymentId: string) {
                   <td>{{ b.full_name }}</td>
                   <td>{{ b.room_number ?? b.room_id.slice(0,8) }}</td>
                   <td>{{ formatDate(b.created_at) }}</td>
-                  <td>
-                    <button class="action-btn view" @click.stop="viewBooking(b)">View</button>
-                  </td>
+                  <td><button class="action-btn view" @click.stop="viewBooking(b)">View</button></td>
                 </tr>
               </tbody>
             </table>
@@ -692,7 +769,11 @@ async function confirmPayment(paymentId: string) {
           <div class="page-hdr">
             <div>
               <h1 class="page-title">Tenants</h1>
-              <p class="page-sub">{{ tenantStats?.active ?? 0 }} active · {{ tenantStats?.pending ?? 0 }} pending · {{ reservedTenants.length }} reserved</p>
+              <p class="page-sub">
+                {{ tenantStats?.active ?? 0 }} active ·
+                {{ tenantStats?.pending ?? 0 }} pending ·
+                {{ reservedTenants.length }} reserved
+              </p>
             </div>
           </div>
           <div class="panel">
@@ -700,22 +781,60 @@ async function confirmPayment(paymentId: string) {
               <input v-model="tenantSearch" type="search" class="search-input" placeholder="Search by name, email, or phone…">
             </div>
             <table class="ptable full">
-              <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Room</th><th>Status</th><th>Balance</th><th>Since</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>Name</th><th>Email</th><th>Phone</th><th>Room</th>
+                  <th>Status</th><th>Balance</th><th>Since</th><th>Actions</th>
+                </tr>
+              </thead>
               <tbody>
-                <tr v-if="loading"><td colspan="7" class="td-muted">Loading…</td></tr>
+                <tr v-if="loading"><td colspan="8" class="td-muted">Loading…</td></tr>
                 <tr v-for="t in allTenantsDisplay" :key="t.id + (t.is_reserved ? '-r' : '')">
                   <td class="td-name">{{ t.full_name }}</td>
                   <td class="td-muted">{{ t.email }}</td>
                   <td>{{ t.phone }}</td>
                   <td>{{ t.room_number ?? (t.room_id ? t.room_id.slice(0,8) : '—') }}</td>
                   <td>
-                    <span v-if="'is_reserved' in t && t.is_reserved" class="badge badge-pending">Reserved</span>
-                    <span v-else class="badge" :class="t.status === 'ACTIVE' ? 'badge-paid' : t.status === 'PENDING' ? 'badge-pending' : 'badge-unpaid'">{{ t.status }}</span>
+                    <!-- Reserved badge for booking-based tenants -->
+                    <span v-if="'is_reserved' in t && t.is_reserved" class="badge badge-reserved">Reserved</span>
+                    <!-- Normal status badges for tenant-profile tenants -->
+                    <span v-else class="badge"
+                      :class="t.status === 'ACTIVE' ? 'badge-paid' : t.status === 'PENDING' ? 'badge-pending' : 'badge-unpaid'">
+                      {{ t.status }}
+                    </span>
                   </td>
-                  <td :class="t.outstanding_balance > 0 ? 'td-danger' : ''">{{ formatMoney(t.outstanding_balance) }}</td>
+                  <td :class="t.outstanding_balance > 0 ? 'td-danger' : ''">
+                    {{ formatMoney(t.outstanding_balance) }}
+                  </td>
                   <td class="td-muted">{{ formatDate(t.created_at) }}</td>
+                  <td class="td-actions">
+                    <!-- Confirm button: only for reserved (approved booking, not yet confirmed) -->
+                    <button
+                      v-if="'is_reserved' in t && t.is_reserved"
+                      class="action-btn confirm"
+                      title="Confirm tenant as occupant"
+                      @click="confirmTenant(t.id, t.full_name)"
+                    >
+                      ✓ Confirm
+                    </button>
+                    <!-- Unassign button: only for active tenant profiles -->
+                    <button
+                      v-else
+                      class="action-btn unassign"
+                      title="Unassign tenant — frees room and removes records"
+                      @click="() => {
+                        const tenant = tenants.find(x => x.id === t.id)
+                        if (tenant?.room_id) removeRoom(tenant.room_id, tenant.room_number ?? 'room', 'OCCUPIED')
+                        else if (window.confirm(`Remove ${t.full_name}'s profile?`)) managerService.unassignTenant(t.id).then(loadManagerData)
+                      }"
+                    >
+                      Unassign
+                    </button>
+                  </td>
                 </tr>
-                <tr v-if="!loading && allTenantsDisplay.length === 0"><td colspan="7" class="td-muted">No tenants found.</td></tr>
+                <tr v-if="!loading && allTenantsDisplay.length === 0">
+                  <td colspan="8" class="td-muted">No tenants found.</td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -726,7 +845,11 @@ async function confirmPayment(paymentId: string) {
           <div class="page-hdr">
             <div>
               <h1 class="page-title">Rooms</h1>
-              <p class="page-sub">{{ dashboard?.rooms?.total ?? 0 }} total · {{ dashboard?.rooms?.vacant ?? 0 }} vacant · {{ dashboard?.rooms?.occupied ?? 0 }} occupied</p>
+              <p class="page-sub">
+                {{ dashboard?.rooms?.total ?? 0 }} total ·
+                {{ dashboard?.rooms?.vacant ?? 0 }} vacant ·
+                {{ dashboard?.rooms?.occupied ?? 0 }} occupied
+              </p>
             </div>
             <div class="hdr-actions">
               <button class="btn-primary" @click="openAddRoom">+ Add Room</button>
@@ -737,36 +860,65 @@ async function confirmPayment(paymentId: string) {
               <input v-model="roomSearch" type="search" class="search-input" placeholder="Search by room number or status…">
             </div>
             <table class="ptable full">
-              <thead><tr><th>Room #</th><th>Status</th><th>Reserved By</th><th>Occupants</th><th>Monthly Rent</th><th>Actions</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>Room #</th><th>Status</th><th>Reserved By</th>
+                  <th>Occupants</th><th>Monthly Rent</th><th>Actions</th>
+                </tr>
+              </thead>
               <tbody>
                 <tr v-if="loading"><td colspan="6" class="td-muted">Loading…</td></tr>
                 <tr v-for="r in filteredRooms" :key="r.id">
                   <td class="td-name">{{ r.room_number }}</td>
-                  <td><span class="badge" :class="r.status === 'VACANT' ? 'badge-paid' : r.status === 'OCCUPIED' ? 'badge-inprogress' : r.status === 'MAINTENANCE' ? 'badge-partial' : 'badge-pending'">{{ r.status }}</span></td>
-                  <td class="td-muted">{{ r.status === 'OCCUPIED' || r.status === 'RESERVED' ? (tenants.find(t => t.room_id === r.id)?.full_name ?? approvedBookings.find(b => b.room_id === r.id)?.full_name ?? '—') : '—' }}</td>
+                  <td>
+                    <span class="badge"
+                      :class="r.status === 'VACANT'      ? 'badge-paid'
+                            : r.status === 'OCCUPIED'    ? 'badge-occupied'
+                            : r.status === 'MAINTENANCE' ? 'badge-partial'
+                            : 'badge-reserved'">
+                      {{ r.status }}
+                    </span>
+                  </td>
+                  <td class="td-muted">
+                    {{
+                      (r.status === 'OCCUPIED' || r.status === 'RESERVED')
+                        ? (tenants.find(t => t.room_id === r.id)?.full_name
+                           ?? approvedBookings.find(b => b.room_id === r.id)?.full_name
+                           ?? '—')
+                        : '—'
+                    }}
+                  </td>
                   <td>{{ r.current_occupants ?? 0 }} / {{ r.max_occupants ?? '—' }}</td>
                   <td>{{ formatMoney(r.monthly_rent) }}</td>
                   <td class="td-actions">
                     <button
                       v-if="r.status === 'MAINTENANCE'"
                       class="action-btn approve"
-                      title="Mark room as Vacant (available)"
+                      title="Mark room as Vacant"
                       @click="setRoomVacant(r.id)"
                     >Set Vacant</button>
                     <button
                       v-if="r.status !== 'MAINTENANCE'"
                       class="action-btn outline"
-                      title="Set room to Maintenance (deactivate)"
+                      title="Put room in Maintenance"
                       @click="setRoomMaintenance(r.id)"
                     >Set Maintenance</button>
+                    <!-- Label changes based on status: Unassign vs Remove -->
                     <button
-                      class="action-btn reject"
-                      :title="r.status === 'OCCUPIED' || r.status === 'RESERVED' ? 'Unassign tenant from this room' : 'Permanently delete room (admin only)'"
+                      class="action-btn"
+                      :class="(r.status === 'OCCUPIED' || r.status === 'RESERVED') ? 'unassign' : 'reject'"
+                      :title="(r.status === 'OCCUPIED' || r.status === 'RESERVED')
+                        ? 'Unassign tenant — frees room and removes all records'
+                        : 'Permanently delete room (admin only)'"
                       @click="removeRoom(r.id, r.room_number, r.status)"
-                    >{{ r.status === 'OCCUPIED' || r.status === 'RESERVED' ? 'Unassign' : 'Remove' }}</button>
+                    >
+                      {{ (r.status === 'OCCUPIED' || r.status === 'RESERVED') ? 'Unassign' : 'Remove' }}
+                    </button>
                   </td>
                 </tr>
-                <tr v-if="!loading && filteredRooms.length === 0"><td colspan="6" class="td-muted">No rooms found.</td></tr>
+                <tr v-if="!loading && filteredRooms.length === 0">
+                  <td colspan="6" class="td-muted">No rooms found.</td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -831,11 +983,7 @@ async function confirmPayment(paymentId: string) {
                   <td><span class="badge" :class="paymentBadgeClass(p.status)">{{ p.status }}</span></td>
                   <td>{{ formatDate(p.payment_date) }}</td>
                   <td class="td-actions">
-                    <button
-                      v-if="p.status === 'PENDING'"
-                      class="action-btn approve"
-                      @click="confirmPayment(p.id)"
-                    >Confirm</button>
+                    <button v-if="p.status === 'PENDING'" class="action-btn approve" @click="confirmPayment(p.id)">Confirm</button>
                     <span v-else class="td-muted" style="font-size:11px">—</span>
                   </td>
                 </tr>
@@ -930,9 +1078,7 @@ async function confirmPayment(paymentId: string) {
                   <td>{{ b.room_number ?? b.room_id.slice(0,8) }}</td>
                   <td>{{ formatDate(b.desired_move_in_date) }}</td>
                   <td>{{ formatDate(b.created_at) }}</td>
-                  <td>
-                    <button class="action-btn view" @click.stop="viewBooking(b)">View</button>
-                  </td>
+                  <td><button class="action-btn view" @click.stop="viewBooking(b)">View</button></td>
                 </tr>
                 <tr v-if="!loading && bookings.length === 0"><td colspan="7" class="td-muted">No pending applications.</td></tr>
               </tbody>
@@ -952,7 +1098,13 @@ async function confirmPayment(paymentId: string) {
             <div style="font-size:36px;margin-bottom:6px">&#128203;</div>
             <h2>Booking Application</h2>
             <p>Room {{ viewingBooking.room_number ?? viewingBooking.room_id.slice(0,8) }} &mdash; &#8369;{{ viewingBooking.monthly_rent?.toLocaleString() ?? '—' }}/mo</p>
-            <span class="vbadge" :class="viewingBooking.status === 'APPROVED' ? 'vbadge-approved' : viewingBooking.status === 'REJECTED' ? 'vbadge-rejected' : viewingBooking.status === 'CANCELLED' ? 'vbadge-cancelled' : 'vbadge-pending'">{{ viewingBooking.status }}</span>
+            <span class="vbadge"
+              :class="viewingBooking.status === 'APPROVED'  ? 'vbadge-approved'
+                    : viewingBooking.status === 'REJECTED'  ? 'vbadge-rejected'
+                    : viewingBooking.status === 'CANCELLED' ? 'vbadge-cancelled'
+                    : 'vbadge-pending'">
+              {{ viewingBooking.status }}
+            </span>
           </div>
 
           <p class="vsec-label">Applicant Information</p>
@@ -1012,6 +1164,7 @@ async function confirmPayment(paymentId: string) {
             </div>
           </template>
 
+          <!-- Approve / Reject actions — only shown for PENDING bookings -->
           <template v-if="viewingBooking.status === 'PENDING'">
             <div v-if="confirmRejectId === viewingBooking.id" style="margin-top:8px">
               <label style="font-size:12px;color:#6b7280;font-weight:500">Rejection reason (optional)</label>
@@ -1020,7 +1173,9 @@ async function confirmPayment(paymentId: string) {
             </div>
             <div style="display:flex;gap:10px;margin-top:12px">
               <button class="vbtn-approve" @click="approveBooking(viewingBooking.id)">&#10003; Approve</button>
-              <button class="vbtn-reject"  @click="rejectBooking(viewingBooking.id)">{{ confirmRejectId === viewingBooking.id ? 'Confirm Reject' : '&#10007; Reject' }}</button>
+              <button class="vbtn-reject"  @click="rejectBooking(viewingBooking.id)">
+                {{ confirmRejectId === viewingBooking.id ? 'Confirm Reject' : '&#10007; Reject' }}
+              </button>
             </div>
           </template>
         </div>
@@ -1035,9 +1190,7 @@ async function confirmPayment(paymentId: string) {
             <h2 class="modal-title">Add New Room</h2>
             <button class="modal-close" @click="showAddRoomModal = false">✕</button>
           </div>
-
           <div v-if="roomFormError" class="form-error">{{ roomFormError }}</div>
-
           <form class="modal-form" @submit.prevent="submitAddRoom">
             <div class="form-row">
               <div class="form-group">
@@ -1052,7 +1205,6 @@ async function confirmPayment(paymentId: string) {
                 </select>
               </div>
             </div>
-
             <div class="form-row">
               <div class="form-group">
                 <label>Room Type</label>
@@ -1065,17 +1217,14 @@ async function confirmPayment(paymentId: string) {
                 <input v-model.number="roomForm.max_occupants" type="number" min="1" max="20" class="form-input" />
               </div>
             </div>
-
             <div class="form-group full">
               <label>Description</label>
               <textarea v-model="roomForm.description" class="form-textarea" rows="2" placeholder="Optional room description…"></textarea>
             </div>
-
             <div class="form-group full">
               <label>Property Name</label>
               <input v-model="roomForm.property_name" type="text" placeholder="e.g. Sun Residences" class="form-input" />
             </div>
-
             <div class="form-row">
               <div class="form-group">
                 <label>Location / City</label>
@@ -1086,7 +1235,6 @@ async function confirmPayment(paymentId: string) {
                 <input v-model="roomForm.address" type="text" placeholder="Street, Barangay" class="form-input" />
               </div>
             </div>
-
             <div class="form-row">
               <div class="form-group">
                 <label>Monthly Rate (₱) <span class="req">*</span></label>
@@ -1101,7 +1249,6 @@ async function confirmPayment(paymentId: string) {
                 <input v-model.number="roomForm.advance_multiplier" type="number" min="0" step="0.5" class="form-input" />
               </div>
             </div>
-
             <div class="form-row">
               <div class="form-group">
                 <label>Length (sqm)</label>
@@ -1112,7 +1259,6 @@ async function confirmPayment(paymentId: string) {
                 <input v-model.number="roomForm.dimension!.width_sqm" type="number" min="1" step="0.5" class="form-input" placeholder="Optional" />
               </div>
             </div>
-
             <div class="form-group full">
               <label>Amenities</label>
               <div class="amenity-input-row">
@@ -1126,7 +1272,6 @@ async function confirmPayment(paymentId: string) {
                 </span>
               </div>
             </div>
-
             <div class="modal-footer">
               <button type="button" class="btn-outline" @click="showAddRoomModal = false">Cancel</button>
               <button type="submit" class="btn-primary" :disabled="roomFormLoading">
@@ -1146,10 +1291,8 @@ async function confirmPayment(paymentId: string) {
             <h2 class="modal-title">Record Payment</h2>
             <button class="modal-close" @click="closePaymentModal">✕</button>
           </div>
-
           <div v-if="paymentError"   class="form-error">{{ paymentError }}</div>
           <div v-if="paymentSuccess" style="margin:0 24px;padding:10px 12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:9px;color:#166534;font-size:12.5px;">{{ paymentSuccess }}</div>
-
           <div class="modal-form">
             <div class="form-group">
               <label>Tenant <span class="req">*</span></label>
@@ -1158,7 +1301,6 @@ async function confirmPayment(paymentId: string) {
                 <option v-for="t in tenants" :key="t.id" :value="t.id">{{ t.full_name }}</option>
               </select>
             </div>
-
             <div class="form-row">
               <div class="form-group">
                 <label>Lease ID <span class="req">*</span></label>
@@ -1169,7 +1311,6 @@ async function confirmPayment(paymentId: string) {
                 <input v-model="paymentForm.room_id" type="text" class="form-input" placeholder="Auto-filled" />
               </div>
             </div>
-
             <div class="form-row">
               <div class="form-group">
                 <label>Amount (₱) <span class="req">*</span></label>
@@ -1195,12 +1336,10 @@ async function confirmPayment(paymentId: string) {
                 </select>
               </div>
             </div>
-
             <div class="form-group">
               <label>Reference No.</label>
               <input v-model="paymentForm.reference_no" type="text" class="form-input" placeholder="Optional" />
             </div>
-
             <div class="form-row">
               <div class="form-group">
                 <label>Period Start</label>
@@ -1211,12 +1350,10 @@ async function confirmPayment(paymentId: string) {
                 <input v-model="paymentForm.period_end" type="date" class="form-input" />
               </div>
             </div>
-
             <div class="form-group">
               <label>Notes</label>
               <textarea v-model="paymentForm.notes" class="form-textarea" rows="2" placeholder="Optional notes…"></textarea>
             </div>
-
             <div class="modal-footer">
               <button type="button" class="btn-outline" @click="closePaymentModal">Cancel</button>
               <button type="button" class="btn-primary" :disabled="paymentLoading" @click="submitPayment">
@@ -1287,7 +1424,7 @@ async function confirmPayment(paymentId: string) {
 .panel-link { background: none; border: none; font-size: 12px; font-weight: 600; color: #ae68fa; cursor: pointer; font-family: inherit; }
 .panel-link:hover { color: #f1966e; }
 
-/* ── Payment table ── */
+/* ── Tables ── */
 .ptable { width: 100%; border-collapse: collapse; font-size: 13px; }
 .ptable.full { font-size: 12.5px; }
 .ptable th { text-align: left; padding: 7px 10px; color: #c4b8e8; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; font-weight: 600; border-bottom: 1px solid #f3f0fb; }
@@ -1301,13 +1438,15 @@ async function confirmPayment(paymentId: string) {
 
 /* ── Badges ── */
 .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 10px; font-weight: 700; }
-.badge-paid      { background: #dcfce7; color: #166534; }
-.badge-unpaid    { background: #fee2e2; color: #991b1b; }
-.badge-partial   { background: #fef3c7; color: #92400e; }
-.badge-inprogress{ background: #fef9c3; color: #854d0e; }
-.badge-assigned  { background: #ccfbf1; color: #0f766e; }
-.badge-pending   { background: #fee2e2; color: #991b1b; }
-.badge-done      { background: #f0fdf4; color: #166534; }
+.badge-paid       { background: #dcfce7; color: #166534; }
+.badge-occupied   { background: #d1fae5; color: #065f46; }
+.badge-reserved   { background: #fef3c7; color: #92400e; }
+.badge-unpaid     { background: #fee2e2; color: #991b1b; }
+.badge-partial    { background: #fef3c7; color: #92400e; }
+.badge-inprogress { background: #fef9c3; color: #854d0e; }
+.badge-assigned   { background: #ccfbf1; color: #0f766e; }
+.badge-pending    { background: #fee2e2; color: #991b1b; }
+.badge-done       { background: #f0fdf4; color: #166534; }
 
 /* ── Maintenance queue ── */
 .mq-list { display: flex; flex-direction: column; gap: 10px; }
@@ -1335,10 +1474,12 @@ async function confirmPayment(paymentId: string) {
 
 /* ── Action buttons ── */
 .action-btn { padding: 4px 10px; border-radius: 6px; border: none; font-size: 11px; font-weight: 700; cursor: pointer; margin-right: 4px; font-family: inherit; }
-.action-btn.approve { background: #dcfce7; color: #166534; }
-.action-btn.reject  { background: #fee2e2; color: #991b1b; }
-.action-btn.outline { background: #f3f0fb; color: #6b7280; border: 1px solid #e0ddf7; }
-.action-btn.view    { background: #eff6ff; color: #2563eb; border-radius: 8px; padding: 5px 14px; font-size: 12px; }
+.action-btn.approve  { background: #dcfce7; color: #166534; }
+.action-btn.reject   { background: #fee2e2; color: #991b1b; }
+.action-btn.outline  { background: #f3f0fb; color: #6b7280; border: 1px solid #e0ddf7; }
+.action-btn.view     { background: #eff6ff; color: #2563eb; border-radius: 8px; padding: 5px 14px; font-size: 12px; }
+.action-btn.confirm  { background: linear-gradient(135deg, #ae68fa, #f1966e); color: #fff; }
+.action-btn.unassign { background: #fee2e2; color: #991b1b; }
 
 /* ── Table action cell ── */
 .td-actions { white-space: nowrap; }
@@ -1350,28 +1491,11 @@ async function confirmPayment(paymentId: string) {
 @media (max-width: 600px)  { .stats-grid { grid-template-columns: 1fr; } .content { padding: 16px; } }
 
 /* ── Modal overlay ── */
-.modal-overlay {
-  position: fixed; inset: 0; z-index: 9999;
-  background: rgba(22, 13, 39, .55);
-  display: flex; align-items: center; justify-content: center;
-  padding: 24px;
-}
-.modal-box {
-  background: #fff; border-radius: 18px;
-  width: 100%; max-width: 560px; max-height: 90vh;
-  overflow-y: auto; box-shadow: 0 24px 80px rgba(22,13,39,.28);
-  display: flex; flex-direction: column;
-}
-.modal-hdr {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 22px 24px 0; flex-shrink: 0;
-}
+.modal-overlay { position: fixed; inset: 0; z-index: 9999; background: rgba(22, 13, 39, .55); display: flex; align-items: center; justify-content: center; padding: 24px; }
+.modal-box { background: #fff; border-radius: 18px; width: 100%; max-width: 560px; max-height: 90vh; overflow-y: auto; box-shadow: 0 24px 80px rgba(22,13,39,.28); display: flex; flex-direction: column; }
+.modal-hdr { display: flex; align-items: center; justify-content: space-between; padding: 22px 24px 0; flex-shrink: 0; }
 .modal-title { font-size: 18px; font-weight: 800; color: #160d27; margin: 0; }
-.modal-close {
-  background: none; border: none; font-size: 18px; cursor: pointer;
-  color: #9ca3af; width: 32px; height: 32px; border-radius: 8px;
-  display: flex; align-items: center; justify-content: center;
-}
+.modal-close { background: none; border: none; font-size: 18px; cursor: pointer; color: #9ca3af; width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; }
 .modal-close:hover { background: #f3f0fb; color: #160d27; }
 
 /* ── Form layout ── */
@@ -1381,17 +1505,9 @@ async function confirmPayment(paymentId: string) {
 .form-group { display: flex; flex-direction: column; gap: 5px; }
 .form-group.full { grid-column: 1 / -1; }
 .form-group label { font-size: 11.5px; font-weight: 600; color: #6b7280; }
-.form-input {
-  padding: 8px 10px; border: 1.5px solid #e0ddf7; border-radius: 9px;
-  font-size: 13px; font-family: inherit; background: #faf7ff; color: #160d27;
-  transition: border-color .15s;
-}
+.form-input { padding: 8px 10px; border: 1.5px solid #e0ddf7; border-radius: 9px; font-size: 13px; font-family: inherit; background: #faf7ff; color: #160d27; transition: border-color .15s; }
 .form-input:focus { outline: none; border-color: #ae68fa; }
-.form-textarea {
-  padding: 8px 10px; border: 1.5px solid #e0ddf7; border-radius: 9px;
-  font-size: 13px; font-family: inherit; background: #faf7ff; color: #160d27;
-  resize: vertical;
-}
+.form-textarea { padding: 8px 10px; border: 1.5px solid #e0ddf7; border-radius: 9px; font-size: 13px; font-family: inherit; background: #faf7ff; color: #160d27; resize: vertical; }
 .form-textarea:focus { outline: none; border-color: #ae68fa; }
 .req { color: #ef4444; }
 .form-error { margin: 0 24px; padding: 10px 12px; background: #fef2f2; border: 1px solid #fecaca; border-radius: 9px; color: #991b1b; font-size: 12.5px; }
@@ -1400,15 +1516,8 @@ async function confirmPayment(paymentId: string) {
 .amenity-input-row { display: flex; gap: 8px; align-items: center; }
 .amenity-input-row .form-input { flex: 1; }
 .amenity-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-.amenity-chip {
-  display: inline-flex; align-items: center; gap: 5px;
-  background: #ede9fb; color: #5b2d9e; border-radius: 999px;
-  padding: 3px 10px; font-size: 12px; font-weight: 600;
-}
-.chip-remove {
-  background: none; border: none; cursor: pointer; color: #9ca3af;
-  font-size: 14px; line-height: 1; padding: 0; display: flex; align-items: center;
-}
+.amenity-chip { display: inline-flex; align-items: center; gap: 5px; background: #ede9fb; color: #5b2d9e; border-radius: 999px; padding: 3px 10px; font-size: 12px; font-weight: 600; }
+.chip-remove { background: none; border: none; cursor: pointer; color: #9ca3af; font-size: 14px; line-height: 1; padding: 0; display: flex; align-items: center; }
 .chip-remove:hover { color: #ef4444; }
 
 /* ── Modal footer ── */
@@ -1420,7 +1529,7 @@ async function confirmPayment(paymentId: string) {
 </style>
 
 <style>
-/* ── Booking View Modal (Teleport – not scoped) ───────────── */
+/* ── Booking View Modal (Teleport – not scoped) ── */
 .view-modal-overlay { position:fixed;inset:0;background:rgba(17,24,39,.5);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:2000;padding:24px; }
 .view-modal-card    { position:relative;width:100%;max-width:480px;background:#fff;border-radius:24px;padding:32px 36px 28px;box-shadow:0 24px 64px rgba(0,0,0,.15);display:flex;flex-direction:column;gap:12px;max-height:90vh;overflow-y:auto; }
 .view-modal-close   { position:absolute;top:14px;right:16px;background:none;border:none;font-size:18px;color:#9ca3af;cursor:pointer; }

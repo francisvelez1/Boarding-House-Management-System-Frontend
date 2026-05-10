@@ -18,7 +18,7 @@ export interface MaintenanceItem {
 }
 
 export interface SubmitMaintenancePayload {
-  room_id: string
+  room_id?: string        // ← make optional
   title: string
   description: string
   category?: MaintenanceCategory

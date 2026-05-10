@@ -106,6 +106,12 @@ class ManagerService extends BaseService {
   getPaymentStats(): Promise<PaymentStats> {
     return this.get('/payments/stats')
   }
+  async unassignTenant(tenantId: string): Promise<any> {
+  // Use a relative path that goes UP one level to get out of /manager
+  // OR use the full path if your BaseService allows it.
+  return this.delete(`../tenants/${tenantId}/unassign`); 
+
+  }
 }
 
 export const managerService = new ManagerService()

@@ -58,7 +58,7 @@ export interface BookingItem {
 }
 
 export interface ReviewBookingPayload {
-  status:       'APPROVED' | 'REJECTED'
+  status:       'APPROVED' | 'REJECTED' | 'CONFIRMED'
   review_notes?: string
 }
 
