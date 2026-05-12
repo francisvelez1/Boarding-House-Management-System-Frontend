@@ -599,10 +599,41 @@ async function confirmTenant(bookingId: string, fullName: string) {
   }
 }
 
-async function updateMaintenanceStatus(id: string, action: 'start' | 'complete' | 'close') {
+async function updateMaintenanceStatus(
+  id: string,
+  action: 'accept' | 'start' | 'complete' | 'reject' | 'close',
+  payload?: { resolution?: string; rejection_reason?: string },
+) {
+  const statusMap: Record<string, string> = {
+    accept:   'ASSIGNED',
+    start:    'IN_PROGRESS',
+    complete: 'COMPLETED',
+    reject:   'REJECTED',
+    close:    'CLOSED',
+  }
+
   try {
-    const base = `/api/manager/maintenance/${id}`
-    await fetch(`${base}/${action}`, { method: 'PATCH', headers: { Authorization: `Bearer ${auth.token}` } })
+    const body: Record<string, string | undefined> = {
+      status: statusMap[action],
+    }
+    // COMPLETED → resolution note; REJECTED → rejection_reason (sent as resolution field)
+    if (payload?.resolution)       body.resolution = payload.resolution
+    if (payload?.rejection_reason) body.resolution = payload.rejection_reason
+
+    const res = await fetch(`/api/maintenance/manager/${id}/status`, {
+      method:  'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization:  `Bearer ${auth.token}`,
+      },
+      body: JSON.stringify(body),
+    })
+
+    if (!res.ok) {
+      const json = await res.json().catch(() => ({}))
+      throw new Error(extractFetchError(json, 'Failed to update maintenance.'))
+    }
+
     await loadManagerData()
   } catch (e: any) {
     error.value = e?.message ?? 'Failed to update maintenance.'
