@@ -8,7 +8,7 @@ const router = createRouter({
     {
       path: '/',
       name: 'Guest',
-      component: () => import('../views/auth/GuestPage.vue'),
+      component: () => import('../views/Guest/GuestPage.vue'),
       meta: { requiresAuth: false },
     },
     {
@@ -22,20 +22,20 @@ const router = createRouter({
     {
       path: '/admin',
       name: 'Admin',
-      component: () => import('../views/auth/AdminPage.vue'),
+      component: () => import('../views/Admin/AdminPage.vue'),
       meta: { requiresAuth: true, requiresAdmin: true },
     },
 
     {
       path: '/tenant/dashboard',
       name: 'TenantPage',
-      component: () => import('../views/auth/TenantPage.vue'),
+      component: () => import('../views/Tenant/TenantPage.vue'),
       meta: { requiresAuth: true, requiresTenant: true },
     },
     {
       path: '/manager',
       name: 'Manager',
-      component: () => import('../views/auth/ManagerPage.vue'),
+      component: () => import('../views/Manager/ManagerPage.vue'),
       meta: { requiresAuth: true, requiresManager: true },
     },
 

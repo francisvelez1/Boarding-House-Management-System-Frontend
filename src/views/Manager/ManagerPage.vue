@@ -4,6 +4,14 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '../../stores/auth'
 import DashboardSidebar from '@/components/dashboard_layout/DashboardSidebar.vue'
 import DashboardTopbar from '@/components/dashboard_layout/DashboardTopbar.vue'
+import Manager_Tenants      from './Manager_Tenants.vue'
+import Manager_Rooms         from './Manager_Rooms.vue'
+import Manager_Leases        from './Manager_Leases.vue'
+import Manager_Payments      from './Manager_Payments.vue'
+import Manager_Reports       from './Manager_Reports.vue'
+import Manager_Maintenance   from './Manager_Maintenance.vue'
+import Manager_Messages      from './Manager_Messages.vue'
+import Manager_Applications  from './Manager_Applications.vue'
 import {
   managerService,
   type ManagerDashboardPayload,
@@ -836,228 +844,101 @@ async function confirmPayment(paymentId: string) {
         </div>
 
         <!-- ════════════════════════ TENANTS ════════════════════════ -->
-        <div v-else-if="activeSection === 'tenants'">
-          <div class="page-hdr">
-            <div>
-              <h1 class="page-title">Tenants</h1>
-              <p class="page-sub">{{ tenantStats?.active ?? 0 }} active · {{ tenantStats?.pending ?? 0 }} pending · {{ reservedTenants.length }} reserved</p>
-            </div>
-          </div>
-          <div class="panel">
-            <div class="panel-hdr">
-              <input v-model="tenantSearch" type="search" class="search-input" placeholder="Search by name, email, or phone…">
-            </div>
-            <table class="ptable full">
-              <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Room</th><th>Status</th><th>Balance</th><th>Since</th><th>Actions</th></tr></thead>
-              <tbody>
-                <tr v-if="loading"><td colspan="8" class="td-muted">Loading…</td></tr>
-                <tr v-for="t in allTenantsDisplay" :key="t.id + (t.is_reserved ? '-r' : '')">
-                  <td class="td-name">{{ t.full_name }}</td>
-                  <td class="td-muted">{{ t.email }}</td>
-                  <td>{{ t.phone }}</td>
-                  <td>{{ t.room_number ?? (t.room_id ? t.room_id.slice(0,8) : '—') }}</td>
-                  <td>
-                    <span v-if="'is_reserved' in t && t.is_reserved" class="badge badge-reserved">Reserved</span>
-                    <span v-else class="badge" :class="t.status === 'ACTIVE' ? 'badge-paid' : t.status === 'PENDING' ? 'badge-pending' : 'badge-unpaid'">{{ t.status }}</span>
-                  </td>
-                  <td :class="t.outstanding_balance > 0 ? 'td-danger' : ''">{{ formatMoney(t.outstanding_balance) }}</td>
-                  <td class="td-muted">{{ formatDate(t.created_at) }}</td>
-                  <td class="td-actions">
-                    <!-- Reserved (approved booking, no profile yet): show Confirm -->
-                    <button v-if="'is_reserved' in t && t.is_reserved" class="action-btn confirm" title="Confirm tenant as occupant" @click="confirmTenant(t.id, t.full_name)">
-                      ✓ Confirm
-                    </button>
-                    <!-- Active tenant profile: show Unassign -->
-                    <button v-else class="action-btn unassign" title="Unassign tenant — frees room and removes records" @click="handleUnassignTenant(t.id, t.full_name)">
-                      Unassign
-                    </button>
-                  </td>
-                </tr>
-                <tr v-if="!loading && allTenantsDisplay.length === 0"><td colspan="8" class="td-muted">No tenants found.</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <Manager_Tenants
+          v-else-if="activeSection === 'tenants'"
+          :loading="loading"
+          :tenant-stats="tenantStats"
+          :reserved-count="reservedTenants.length"
+          :all-tenants-display="allTenantsDisplay"
+          :tenant-search="tenantSearch"
+          :format-money="formatMoney"
+          :format-date="formatDate"
+          @update:tenant-search="tenantSearch = $event"
+          @confirm-tenant="confirmTenant"
+          @unassign-tenant="handleUnassignTenant"
+        />
 
         <!-- ════════════════════════ ROOMS ════════════════════════ -->
-        <div v-else-if="activeSection === 'rooms'">
-          <div class="page-hdr">
-            <div>
-              <h1 class="page-title">Rooms</h1>
-              <p class="page-sub">{{ dashboard?.rooms?.total ?? 0 }} total · {{ dashboard?.rooms?.vacant ?? 0 }} vacant · {{ dashboard?.rooms?.occupied ?? 0 }} occupied</p>
-            </div>
-            <div class="hdr-actions">
-              <button class="btn-primary" @click="openAddRoom">+ Add Room</button>
-            </div>
-          </div>
-          <div class="panel">
-            <div class="panel-hdr">
-              <input v-model="roomSearch" type="search" class="search-input" placeholder="Search by room number or status…">
-            </div>
-            <table class="ptable full">
-              <thead><tr><th>Room #</th><th>Status</th><th>Reserved By</th><th>Occupants</th><th>Monthly Rent</th><th>Actions</th></tr></thead>
-              <tbody>
-                <tr v-if="loading"><td colspan="6" class="td-muted">Loading…</td></tr>
-                <tr v-for="r in filteredRooms" :key="r.id">
-                  <td class="td-name">{{ r.room_number }}</td>
-                  <td>
-                    <span class="badge" :class="r.status === 'VACANT' ? 'badge-paid' : r.status === 'OCCUPIED' ? 'badge-occupied' : r.status === 'MAINTENANCE' ? 'badge-partial' : 'badge-reserved'">
-                      {{ r.status }}
-                    </span>
-                  </td>
-                  <td class="td-muted">
-                    {{ (r.status === 'OCCUPIED' || r.status === 'RESERVED')
-                      ? (tenants.find(t => t.room_id === r.id)?.full_name ?? approvedBookings.find(b => b.room_id === r.id)?.full_name ?? '—')
-                      : '—' }}
-                  </td>
-                  <td>{{ r.current_occupants ?? 0 }} / {{ r.max_occupants ?? '—' }}</td>
-                  <td>{{ formatMoney(r.monthly_rent) }}</td>
-                  <td class="td-actions">
-                    <button v-if="r.status === 'MAINTENANCE' && (r.current_occupants ?? 0) === 0" class="action-btn approve" title="Mark room as Vacant" @click="setRoomVacant(r.id)">Set Vacant</button>
-                    <button v-if="r.status === 'MAINTENANCE' && (r.current_occupants ?? 0) > 0" class="action-btn unassign" title="Unassign tenant and free room" @click="removeRoom(r.id, r.room_number, r.status)">Unassign & Vacate</button>
-                    <button v-if="r.status !== 'MAINTENANCE'" class="action-btn outline" title="Put room in Maintenance" @click="setRoomMaintenance(r.id)">Set Maintenance</button>
-                    <button
-                      class="action-btn"
-                      :class="(r.status === 'OCCUPIED' || r.status === 'RESERVED') ? 'unassign' : 'reject'"
-                      @click="removeRoom(r.id, r.room_number, r.status)"
-                    >
-                      {{ (r.status === 'OCCUPIED' || r.status === 'RESERVED') ? 'Unassign' : 'Remove' }}
-                    </button>
-                  </td>
-                </tr>
-                <tr v-if="!loading && filteredRooms.length === 0"><td colspan="6" class="td-muted">No rooms found.</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <Manager_Rooms
+          v-else-if="activeSection === 'rooms'"
+          :loading="loading"
+          :dashboard="dashboard"
+          :filtered-rooms="filteredRooms"
+          :tenants="tenants"
+          :approved-bookings="approvedBookings"
+          :room-search="roomSearch"
+          :format-money="formatMoney"
+          @update:room-search="roomSearch = $event"
+          @open-add-room="openAddRoom"
+          @set-vacant="setRoomVacant"
+          @set-maintenance="setRoomMaintenance"
+          @remove-room="removeRoom"
+        />
 
         <!-- ════════════════════════ LEASES ════════════════════════ -->
-        <div v-else-if="activeSection === 'leases'">
-          <div class="page-hdr"><div><h1 class="page-title">Leases</h1><p class="page-sub">{{ dashboard?.leases?.active ?? 0 }} active · {{ dashboard?.leases?.expiring_soon ?? 0 }} expiring soon</p></div></div>
-          <div class="panel">
-            <table class="ptable full">
-              <thead><tr><th>ID</th><th>Tenant</th><th>Room</th><th>Status</th><th>Start</th><th>End</th><th>Rent</th></tr></thead>
-              <tbody>
-                <tr v-if="loading"><td colspan="7" class="td-muted">Loading…</td></tr>
-                <tr v-for="l in leases" :key="l.id">
-                  <td class="td-muted">{{ l.id.slice(0, 8) }}…</td><td>{{ l.tenant_id.slice(0, 8) }}</td><td>{{ l.room_id.slice(0, 8) }}</td>
-                  <td><span class="badge" :class="l.status === 'ACTIVE' ? 'badge-paid' : l.status === 'PENDING' ? 'badge-pending' : 'badge-unpaid'">{{ l.status }}</span></td>
-                  <td>{{ formatDate(l.start_date) }}</td><td>{{ formatDate(l.end_date) }}</td><td>{{ formatMoney(l.monthly_rent) }}</td>
-                </tr>
-                <tr v-if="!loading && leases.length === 0"><td colspan="7" class="td-muted">No leases found.</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <Manager_Leases
+          v-else-if="activeSection === 'leases'"
+          :loading="loading"
+          :dashboard="dashboard"
+          :leases="leases"
+          :format-date="formatDate"
+          :format-money="formatMoney"
+        />
 
         <!-- ════════════════════════ PAYMENTS ════════════════════════ -->
-        <div v-else-if="activeSection === 'payments'">
-          <div class="page-hdr">
-            <div><h1 class="page-title">Payments</h1><p class="page-sub">{{ paymentStats?.paid_count ?? 0 }} paid · {{ paymentStats?.unpaid_count ?? 0 }} unpaid · {{ paymentStats?.partial_count ?? 0 }} partial</p></div>
-            <div class="hdr-actions"><button class="btn-primary" @click="openPaymentModal">+ Record Payment</button></div>
-          </div>
-          <div class="stats-grid mini">
-            <div class="mini-stat"><span>Total collected</span><strong>{{ formatMoney(paymentStats?.total_collected) }}</strong></div>
-            <div class="mini-stat"><span>Outstanding</span><strong class="danger">{{ formatMoney(paymentStats?.total_outstanding) }}</strong></div>
-            <div class="mini-stat"><span>Monthly revenue</span><strong>{{ formatMoneyShort(paymentStats?.monthly_revenue ?? paymentStats?.monthly_collected) }}</strong></div>
-            <div class="mini-stat"><span>Unpaid count</span><strong class="danger">{{ paymentStats?.unpaid_count ?? 0 }}</strong></div>
-          </div>
-          <div class="panel">
-            <table class="ptable full">
-              <thead><tr><th>Tenant</th><th>Amount</th><th>Type</th><th>Method</th><th>Receipt</th><th>Status</th><th>Date</th><th>Actions</th></tr></thead>
-              <tbody>
-                <tr v-if="loading"><td colspan="8" class="td-muted">Loading…</td></tr>
-                <tr v-for="p in payments" :key="p.id">
-                  <td class="td-name">{{ tenants.find(t => t.id === p.tenant_id)?.full_name ?? p.tenant_id.slice(0, 8) }}</td>
-                  <td class="td-amt">{{ formatMoney(p.amount) }}</td><td>{{ p.type }}</td><td>{{ p.method }}</td>
-                  <td class="td-muted" style="font-size:11px">{{ p.receipt_number ?? '—' }}</td>
-                  <td><span class="badge" :class="paymentBadgeClass(p.status)">{{ p.status }}</span></td>
-                  <td>{{ formatDate(p.payment_date) }}</td>
-                  <td class="td-actions">
-                    <button v-if="p.status === 'PENDING'" class="action-btn approve" @click="confirmPayment(p.id)">Confirm</button>
-                    <span v-else class="td-muted" style="font-size:11px">—</span>
-                  </td>
-                </tr>
-                <tr v-if="!loading && payments.length === 0"><td colspan="8" class="td-muted">No payments found.</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <Manager_Payments
+          v-else-if="activeSection === 'payments'"
+          :loading="loading"
+          :payments="payments"
+          :payment-stats="paymentStats"
+          :tenants="tenants"
+          :format-money="formatMoney"
+          :format-money-short="formatMoneyShort"
+          :format-date="formatDate"
+          :payment-badge-class="paymentBadgeClass"
+          @open-payment-modal="openPaymentModal"
+          @confirm-payment="confirmPayment"
+        />
 
         <!-- ════════════════════════ REPORTS ════════════════════════ -->
-        <div v-else-if="activeSection === 'reports'">
-          <div class="page-hdr"><div><h1 class="page-title">Reports</h1><p class="page-sub">Occupancy, revenue, and operational summary</p></div></div>
-          <div class="stats-grid mini">
-            <div class="mini-stat"><span>Total tenants</span><strong>{{ tenantStats?.total ?? 0 }}</strong></div>
-            <div class="mini-stat"><span>Active tenants</span><strong>{{ tenantStats?.active ?? 0 }}</strong></div>
-            <div class="mini-stat"><span>Occupancy rate</span><strong>{{ Math.round(dashboard?.rooms?.occupancy_rate_pct ?? 0) }}%</strong></div>
-            <div class="mini-stat"><span>Active leases</span><strong>{{ dashboard?.leases?.active ?? 0 }}</strong></div>
-            <div class="mini-stat"><span>Monthly revenue</span><strong>{{ formatMoneyShort(paymentStats?.monthly_revenue ?? paymentStats?.monthly_collected) }}</strong></div>
-            <div class="mini-stat"><span>Outstanding balance</span><strong class="danger">{{ formatMoney(paymentStats?.total_outstanding) }}</strong></div>
-            <div class="mini-stat"><span>Maintenance open</span><strong>{{ (dashboard?.maintenance?.submitted ?? 0) + (dashboard?.maintenance?.in_progress ?? 0) }}</strong></div>
-            <div class="mini-stat"><span>Pending applications</span><strong>{{ bookings.length }}</strong></div>
-          </div>
-        </div>
+        <Manager_Reports
+          v-else-if="activeSection === 'reports'"
+          :tenant-stats="tenantStats"
+          :dashboard="dashboard"
+          :payment-stats="paymentStats"
+          :bookings-count="bookings.length"
+          :format-money="formatMoney"
+          :format-money-short="formatMoneyShort"
+        />
 
         <!-- ════════════════════════ MAINTENANCE ════════════════════ -->
-        <div v-else-if="activeSection === 'maintenance'">
-          <div class="page-hdr"><div><h1 class="page-title">Maintenance</h1><p class="page-sub">{{ dashboard?.maintenance?.submitted ?? 0 }} submitted · {{ dashboard?.maintenance?.in_progress ?? 0 }} in progress · {{ dashboard?.maintenance?.completed ?? 0 }} completed</p></div></div>
-          <div class="panel">
-            <table class="ptable full">
-              <thead><tr><th>Title</th><th>Description</th><th>Priority</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead>
-              <tbody>
-                <tr v-if="loading"><td colspan="6" class="td-muted">Loading…</td></tr>
-                <tr v-for="m in maintenance" :key="m.id">
-                  <td class="td-name">{{ m.title }}</td>
-                  <td class="td-muted">{{ m.description ? m.description.slice(0, 50) + (m.description.length > 50 ? '…' : '') : '—' }}</td>
-                  <td><span class="badge" :class="m.priority === 'HIGH' || m.priority === 'URGENT' ? 'badge-unpaid' : m.priority === 'MEDIUM' ? 'badge-partial' : 'badge-assigned'">{{ m.priority }}</span></td>
-                  <td><span class="badge" :class="maintenanceBadgeClass(m.status)">{{ m.status.replace('_', ' ') }}</span></td>
-                  <td>{{ formatDate(m.created_at) }}</td>
-                  <td>
-                    <button v-if="m.status === 'SUBMITTED' || m.status === 'ASSIGNED'" class="action-btn approve" @click="updateMaintenanceStatus(m.id, 'start')">Start</button>
-                    <button v-if="m.status === 'IN_PROGRESS'" class="action-btn approve" @click="updateMaintenanceStatus(m.id, 'complete')">Complete</button>
-                    <button v-if="m.status === 'COMPLETED'" class="action-btn outline" @click="updateMaintenanceStatus(m.id, 'close')">Close</button>
-                  </td>
-                </tr>
-                <tr v-if="!loading && maintenance.length === 0"><td colspan="6" class="td-muted">No maintenance requests.</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <Manager_Maintenance
+          v-else-if="activeSection === 'maintenance'"
+          :loading="loading"
+          :dashboard="dashboard"
+          :maintenance="maintenance"
+          :format-date="formatDate"
+          :maintenance-badge-class="maintenanceBadgeClass"
+          @update-status="updateMaintenanceStatus"
+        />
 
         <!-- ════════════════════════ MESSAGES ════════════════════════ -->
-        <div v-else-if="activeSection === 'messages'">
-          <div class="page-hdr"><div><h1 class="page-title">Messages</h1><p class="page-sub">Notifications and system activity</p></div></div>
-          <div class="panel">
-            <div class="activity-list full">
-              <div v-if="loading" class="td-muted">Loading…</div>
-              <div v-for="n in notifications" :key="n.id" class="activity-item">
-                <span class="activity-dot" :class="activityDotClass(n.notification_type)"></span>
-                <div class="activity-body"><p class="activity-text"><strong>{{ n.title }}</strong> — {{ n.message }}</p><span class="activity-time">{{ timeAgo(n.created_at) }} · {{ n.notification_type }}</span></div>
-              </div>
-              <div v-if="!loading && notifications.length === 0" class="td-muted">No notifications.</div>
-            </div>
-          </div>
-        </div>
+        <Manager_Messages
+          v-else-if="activeSection === 'messages'"
+          :loading="loading"
+          :notifications="notifications"
+          :activity-dot-class="activityDotClass"
+          :time-ago="timeAgo"
+        />
 
         <!-- ════════════════════════ BOOKINGS ════════════════════════ -->
-        <div v-else-if="activeSection === 'bookings'">
-          <div class="page-hdr"><div><h1 class="page-title">Applications</h1><p class="page-sub">{{ bookings.length }} pending tenant applications</p></div></div>
-          <div class="panel">
-            <table class="ptable full">
-              <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Room</th><th>Move-in</th><th>Date</th><th>Actions</th></tr></thead>
-              <tbody>
-                <tr v-if="loading"><td colspan="7" class="td-muted">Loading…</td></tr>
-                <tr v-for="b in bookings" :key="b.id" style="cursor:pointer" @click="viewBooking(b)">
-                  <td class="td-name">{{ b.full_name }}</td><td class="td-muted">{{ b.email }}</td><td>{{ b.phone }}</td>
-                  <td>{{ b.room_number ?? b.room_id.slice(0,8) }}</td><td>{{ formatDate(b.desired_move_in_date) }}</td><td>{{ formatDate(b.created_at) }}</td>
-                  <td><button class="action-btn view" @click.stop="viewBooking(b)">View</button></td>
-                </tr>
-                <tr v-if="!loading && bookings.length === 0"><td colspan="7" class="td-muted">No pending applications.</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <Manager_Applications
+          v-else-if="activeSection === 'bookings'"
+          :loading="loading"
+          :bookings="bookings"
+          :format-date="formatDate"
+          @view-booking="viewBooking"
+        />
 
       </main>
     </div>
@@ -1223,7 +1104,7 @@ async function confirmPayment(paymentId: string) {
   </div>
 </template>
 
-<style scoped>
+<style>
 .shell { display: flex; height: 100vh; width: 100%; background: #f3f0fb; overflow: hidden; }
 .main-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
 .content { flex: 1; overflow-y: auto; padding: 26px 28px; }

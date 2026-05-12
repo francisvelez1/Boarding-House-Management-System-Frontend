@@ -5,6 +5,10 @@ import LeaseCard from '../../components/TenantsUI_Components/LeaseCard.vue'
 import PaymentsCard from '../../components/TenantsUI_Components/PaymentsCard.vue'
 import MaintenanceCard from '../../components/TenantsUI_Components/MaintenanceCard.vue'
 import MessagesCard from '../../components/TenantsUI_Components/MessageCard.vue'
+import Tenant_MyRoom       from './Tenant_MyRoom.vue'
+import Tenant_Payments     from './Tenant_Payments.vue'
+import Tenant_Maintenance  from './Tenant_Maintenance.vue'
+import Tenant_Messages     from './Tenant_Messages.vue'
 import Hero           from '@/components/layout/Hero.vue'
 import FilterBar      from '@/components/layout/FilterBar.vue'
 import SidebarFilters from '@/components/layout/SidebarFilters.vue'
@@ -907,147 +911,51 @@ onUnmounted(() => {
         <div v-else-if="error" class="error-screen"><p>⚠️ {{ error }}</p></div>
         <template v-else>
           <!-- MY ROOM -->
-          <div v-show="activeSection === 'my-room'" id="my-room">
-            <header class="hero-dash hero-dash--light">
-              <div class="hero-dash__left">
-                <h1>{{ getGreeting() }}, {{ tenant?.first_name ?? tenant?.full_name?.split(' ')[0] ?? username }}!</h1>
-                <p>Here's your boarding house overview for today.</p>
-              </div>
-              <div class="hero-dash__stats">
-                <div class="hero-dash__stat">
-                  <span class="stat-label">Your room</span>
-                  <span class="stat-value stat-value--purple">{{ room?.room_number ?? '—' }}</span>
-                </div>
-                <div class="hero-dash__stat">
-                  <span class="stat-label">Floor</span>
-                  <span class="stat-value stat-value--purple">{{ room?.floor_level ? floorShort(room.floor_level) : '—' }}</span>
-                </div>
-                <div class="hero-dash__stat">
-                  <span class="stat-label">Status</span>
-                  <span class="stat-value stat-value--green">{{ tenant?.status === 'ACTIVE' ? 'Active' : (tenant?.status ?? 'Active') }} ✓</span>
-                </div>
-              </div>
-            </header>
-            <main class="content">
-              <section class="my-room-grid">
-                <!-- Lease details -->
-                <div class="my-room-col">
-                  <LeaseCard v-if="leaseForCard" :lease="leaseForCard" />
-                  <div v-else class="empty-card">
-                    <div class="empty-card__header">
-                      <span class="empty-card__title">Lease details</span>
-                    </div>
-                    <p class="empty-card__msg">No lease information found.</p>
-                  </div>
-                </div>
-                <!-- Payments -->
-                <div class="my-room-col">
-                  <PaymentsCard v-if="paymentsForCard.length" :payments="paymentsForCard" :pay-loading="payNowLoading" @pay-now="handlePayNow" @view-all="scrollTo('payments')" />
-                  <div v-else class="empty-card">
-                    <div class="empty-card__header">
-                      <span class="empty-card__title">Payments</span>
-                      <span class="empty-card__viewall" @click="scrollTo('payments')">View all</span>
-                    </div>
-                    <p class="empty-card__msg">No payment records.</p>
-                    <button v-if="lease" class="btn-pay-rent" @click="openPayModal(lease.monthly_rate ?? 0)">
-                      Pay {{ new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) }} rent — ₱{{ (lease.monthly_rate ?? 0).toLocaleString() }}
-                    </button>
-                  </div>
-                </div>
-                <!-- Maintenance -->
-                <div class="my-room-col">
-                  <MaintenanceCard :requests="maintenanceForCard" @submit-new="handleSubmitMaintenance" @view-all="scrollTo('maintenance')" />
-                </div>
-              </section>
-              <!-- Messages full width -->
-              <section class="section--full">
-                <MessagesCard v-if="messagesForCard.length" :messages="messagesForCard" @open-message="handleOpenMessage" @view-all="scrollTo('messages')" />
-                <div v-else class="empty-card">
-                  <div class="empty-card__header">
-                    <span class="empty-card__title">Messages from management</span>
-                    <span class="empty-card__viewall" @click="scrollTo('messages')">View all</span>
-                  </div>
-                  <p class="empty-card__msg">No messages yet.</p>
-                </div>
-              </section>
-            </main>
-          </div>
+          <Tenant_MyRoom
+            v-show="activeSection === 'my-room'"
+            :tenant="tenant"
+            :room="room"
+            :username="username"
+            :greeting="getGreeting()"
+            :lease-for-card="leaseForCard"
+            :lease="lease"
+            :payments-for-card="paymentsForCard"
+            :pay-now-loading="payNowLoading"
+            :maintenance-for-card="maintenanceForCard"
+            :messages-for-card="messagesForCard"
+            :floor-short="floorShort"
+            @pay-now="handlePayNow"
+            @open-pay-modal="openPayModal"
+            @submit-maintenance="handleSubmitMaintenance"
+            @open-message="handleOpenMessage"
+            @scroll-to="scrollTo"
+          />
 
           <!-- PAYMENTS -->
-          <div v-show="activeSection === 'payments'" id="payments">
-            <main class="content">
-              <section class="section--full">
-                <PaymentsCard v-if="paymentsForCard.length" :payments="paymentsForCard" :pay-loading="payNowLoading" @pay-now="handlePayNow" @view-all="scrollTo('payments')" />
-                <div v-else class="empty-card">
-                  <div class="empty-card__header">
-                    <span class="empty-card__title">Payments</span>
-                  </div>
-                  <p class="empty-card__msg">No payment records yet.</p>
-                  <button v-if="lease" class="btn-pay-rent" @click="openPayModal(lease.monthly_rate ?? 0)">
-                    Pay {{ new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) }} rent — ₱{{ (lease.monthly_rate ?? 0).toLocaleString() }}
-                  </button>
-                </div>
-              </section>
-            </main>
-          </div>
+          <Tenant_Payments
+            v-show="activeSection === 'payments'"
+            :payments-for-card="paymentsForCard"
+            :pay-now-loading="payNowLoading"
+            :lease="lease"
+            @pay-now="handlePayNow"
+            @open-pay-modal="openPayModal"
+            @scroll-to="scrollTo"
+          />
 
           <!-- MAINTENANCE -->
-          <div v-show="activeSection === 'maintenance'" id="maintenance">
-            <main class="content">
-              <section class="section--full">
-                <MaintenanceCard :requests="maintenanceForCard" @submit-new="handleSubmitMaintenance" />
-              </section>
-            </main>
-          </div>
+          <Tenant_Maintenance
+            v-show="activeSection === 'maintenance'"
+            :maintenance-for-card="maintenanceForCard"
+            @submit-new="handleSubmitMaintenance"
+          />
 
           <!-- MESSAGES -->
-          <div v-show="activeSection === 'messages'" id="messages">
-            <main class="content">
-              <section class="section--full">
-                <div class="msg-inbox-card">
-                  <div class="msg-inbox-header">
-                    <span class="msg-inbox-title">Messages from management</span>
-                    <button class="btn-compose" @click="openCompose">✏️ New message</button>
-                  </div>
-
-                  <!-- Thread list -->
-                  <div v-if="inboxThreads.length" class="msg-thread-list">
-                    <div
-                      v-for="m in inboxThreads"
-                      :key="m.thread_id ?? m.id"
-                      class="msg-thread-item"
-                      :class="{ 'msg-thread-item--unread': m.status === 'UNREAD' && m.direction === 'MANAGEMENT_TO_TENANT' }"
-                      @click="openThread(m.thread_id ?? m.id)"
-                    >
-                      <div class="msg-thread-avatar">
-                        {{ m.direction === 'MANAGEMENT_TO_TENANT' ? 'RE' : 'Me' }}
-                      </div>
-                      <div class="msg-thread-body">
-                        <div class="msg-thread-top">
-                          <span class="msg-thread-sender">
-                            {{ m.direction === 'MANAGEMENT_TO_TENANT' ? (m.sender_name ?? 'ResidEase Admin') : 'You' }}
-                          </span>
-                          <span class="msg-thread-time">
-                            {{ new Date(m.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) }}
-                          </span>
-                        </div>
-                        <div v-if="m.subject" class="msg-thread-subject">{{ m.subject }}</div>
-                        <div class="msg-thread-preview">{{ m.body }}</div>
-                      </div>
-                      <span v-if="m.status === 'UNREAD' && m.direction === 'MANAGEMENT_TO_TENANT'" class="msg-unread-dot"></span>
-                    </div>
-                  </div>
-
-                  <!-- Empty state -->
-                  <div v-else class="msg-empty">
-                    <div style="font-size:36px;margin-bottom:8px">💬</div>
-                    <p>No messages yet.</p>
-                    <button class="btn-compose-empty" @click="openCompose">Send a message to management</button>
-                  </div>
-                </div>
-              </section>
-            </main>
-          </div>
+          <Tenant_Messages
+            v-show="activeSection === 'messages'"
+            :inbox-threads="inboxThreads"
+            @open-compose="openCompose"
+            @open-thread="openThread"
+          />
         </template>
       </template>
     </template>
@@ -1409,7 +1317,7 @@ onUnmounted(() => {
   </div>
 </template>
 
-<style scoped>
+<style>
 /* ── Layout ──────────────────────────────────────────────────── */
 .dashboard {
   min-height: 100vh;
