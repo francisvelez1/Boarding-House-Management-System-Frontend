@@ -25,7 +25,7 @@ onMounted(() => {
       id: Number.isNaN(parsedId) ? undefined : parsedId,
       email,
     })
-    const redirect = auth.isAdmin.value ? '/admin' : auth.isManager.value ? '/manager' : '/home'
+    const redirect = auth.isAdmin ? '/admin' : auth.isManager ? '/manager' : '/home'
     router.replace(redirect)
   } else {
     router.replace('/?error=google_failed')
