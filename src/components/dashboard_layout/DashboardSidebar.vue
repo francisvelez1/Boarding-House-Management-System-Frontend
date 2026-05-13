@@ -56,7 +56,6 @@ const managerGroups: { section: string; items: NavItem[] }[] = [
     items: [
       { key: 'maintenance', label: 'Maintenance', icon: 'M14.7 6.3a1 1 0 0 1 0 1.4l-7 7a1 1 0 0 1-1.4 0l-2-2a1 1 0 0 1 1.4-1.4L7 12.6l6.3-6.3a1 1 0 0 1 1.4 0z' },
       { key: 'messages',    label: 'Messages',    icon: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' },
-      { key: 'bookings',    label: 'Applications', icon: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM19 8v6m3-3h-6' },
     ],
   },
 ]

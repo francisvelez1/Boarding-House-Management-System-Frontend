@@ -32,7 +32,9 @@ export interface ManagerRoom {
   status: string
   current_occupants?: number
   capacity?: number
+  max_occupants?: number
   monthly_rent?: number
+  monthly_rate?: number
 }
 
 export interface ManagerLease {
@@ -78,6 +80,40 @@ export interface PaymentStats {
   monthly_collected?: number
 }
 
+export interface AnalyticsData {
+  monthly_revenue: { month: string; revenue: number; target: number }[]
+  collection_rate: number
+  top_rooms: { room_id: string; room_number: string; total_earned: number }[]
+  outstanding_tenants: { tenant_id: string; tenant_name: string; room_number: string; outstanding_balance: number; monthly_rate: number }[]
+  occupancy: { total: number; occupied: number; vacant: number; rate_pct: number }
+  occupancy_by_type: { type: string; occupied: number; total: number; pct: number }[]
+  summary: { total_rooms: number; active_leases: number; total_payments: number; total_collected: number; total_outstanding: number }
+}
+
+export interface ManagerMessage {
+  id: string
+  sender_id: string
+  receiver_id: string
+  tenant_id: string
+  tenant_name: string
+  subject?: string
+  body: string
+  direction?: string
+  status?: string
+  thread_id?: string
+  created_at?: string
+  read_at?: string
+}
+
+export interface MessageableTenant {
+  id: string
+  user_id: string
+  full_name: string
+  email?: string
+  phone?: string
+  room_id?: string
+}
+
 class ManagerService extends BaseService {
   constructor() {
     super('/manager')
@@ -106,8 +142,29 @@ class ManagerService extends BaseService {
   getPaymentStats(): Promise<PaymentStats> {
     return this.get('/payments/stats')
   }
+
   async unassignTenant(tenantId: string): Promise<any> {
     return this.delete(`/tenants/${tenantId}/unassign`)
+  }
+
+  getAnalytics(): Promise<AnalyticsData> {
+    return this.get('/analytics')
+  }
+
+  getMessages(): Promise<ManagerMessage[]> {
+    return this.get('/messages')
+  }
+
+  getMessageableTenants(): Promise<MessageableTenant[]> {
+    return this.get('/messages/tenants')
+  }
+
+  sendMessage(payload: { receiver_id: string; tenant_id: string; body: string; subject?: string; thread_id?: string }): Promise<any> {
+    return this.post('/messages/send', payload)
+  }
+
+  getThread(threadId: string): Promise<ManagerMessage[]> {
+    return this.get(`/messages/thread/${threadId}`)
   }
 }
 

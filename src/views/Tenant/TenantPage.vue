@@ -14,7 +14,7 @@ import FilterBar      from '@/components/layout/FilterBar.vue'
 import SidebarFilters from '@/components/layout/SidebarFilters.vue'
 import RoomsGrid      from '@/components/layout/RoomsGrid.vue'
 import { getTenant, getRoom, getLease, getPayments, getMaintenanceRequests, getMessages, markThreadRead, markNotificationRead, initiatePaypalPayment, recordCashPayment } from "../../services/tenantService";
-import { getTenantMessages, getThread, sendMessage } from "../../services/messageService";
+import { getTenantMessages, getThread, sendMessage, getMyManager } from "../../services/messageService";
 import { maintenanceService } from "../../services/maintenanceService";
 import { bookingService }      from '../../services/bookingService'
 import { managerRequestService, type ManagerRoleRequestItem } from '../../services/managerRequestService'
@@ -338,6 +338,11 @@ onMounted(async () => {
         }).catch(() => {})
     }
 
+    // Resolve manager user_id so tenant can always send messages
+    getMyManager()
+      .then(id => { managerIdRef.value = id })
+      .catch(() => {})
+
     if (bookings.status === 'fulfilled') {
       const list = (bookings.value as any)?.bookings ?? []
       const approved = list.some((b: any) => b.status === 'APPROVED')
@@ -539,8 +544,11 @@ async function handleOpenMessage(id: number) {
 
 // ── Messaging state ────────────────────────────────────────────────────────
 
-// Derive manager user_id from any MANAGEMENT_TO_TENANT message
+// Manager user_id — loaded from API, with message fallback
+const managerIdRef = ref('')
 const managerId = computed<string>(() => {
+  if (managerIdRef.value) return managerIdRef.value
+  // Fallback: derive from any existing MANAGEMENT_TO_TENANT message
   const mgmtMsg = messages.value.find((m: any) => m.direction === 'MANAGEMENT_TO_TENANT')
   return mgmtMsg ? mgmtMsg.sender_id : ''
 })

@@ -64,6 +64,7 @@ const tenants        = ref<ExtendedTenantResponse[]>([])
 const tenantStats    = ref<TenantStats | null>(null)
 const paymentStats   = ref<PaymentStats | null>(null)
 const notifications  = ref<NotificationItem[]>([])
+const dashAnalytics  = ref<any>(null)
 
 const tenantSearch   = ref('')
 const roomSearch     = ref('')
@@ -406,6 +407,17 @@ function maintenanceBadgeClass(status: string) {
   return 'badge-pending'
 }
 
+function tenantNameById(id?: string): string {
+  if (!id) return '—'
+  const t = tenants.value.find(t => t.id === id)
+  return t?.full_name ?? id.slice(0, 8)
+}
+
+function revBarHeight(val: number, data: { revenue: number; target: number }[]): number {
+  const maxVal = Math.max(...data.map(d => Math.max(d.revenue ?? 0, d.target ?? 0)), 1)
+  return Math.max(4, Math.round((val / maxVal) * 120))
+}
+
 function activityDotClass(type: string) {
   if (type.includes('payment') || type.includes('PAYMENT')) return 'dot-blue'
   if (type.includes('maintenance') || type.includes('MAINTENANCE')) return 'dot-orange'
@@ -455,8 +467,14 @@ async function loadManagerData() {
     ])
 
     if (dashRes.status === 'fulfilled')     dashboard.value     = dashRes.value
-    if (roomsRes.status === 'fulfilled')    rooms.value         = roomsRes.value
-    if (leasesRes.status === 'fulfilled')   leases.value        = leasesRes.value
+    if (roomsRes.status === 'fulfilled')    rooms.value         = (roomsRes.value ?? []).map((r: any) => ({
+      ...r,
+      monthly_rent: r.monthly_rent ?? r.monthly_rate,
+    }))
+    if (leasesRes.status === 'fulfilled')   leases.value        = (leasesRes.value ?? []).map((l: any) => ({
+      ...l,
+      monthly_rent: l.monthly_rent ?? l.monthly_rate,
+    }))
     if (paymentsRes.status === 'fulfilled') payments.value      = paymentsRes.value
     if (maintRes.status === 'fulfilled')    maintenance.value   = maintRes.value
     if (bookingsRes.status === 'fulfilled') bookings.value      = bookingsRes.value.bookings ?? []
@@ -472,6 +490,11 @@ async function loadManagerData() {
     ])
     if (tListRes.status === 'fulfilled')   tenants.value      = tListRes.value.data ?? []
     if (tStatsRes.status === 'fulfilled')  tenantStats.value  = tStatsRes.value.data ?? null
+
+    // Load analytics for dashboard charts (non-blocking)
+    managerService.getAnalytics()
+      .then(data => { dashAnalytics.value = data })
+      .catch(() => {})
 
   } catch (e: any) {
     error.value = e?.message ?? 'Failed to load manager dashboard.'
@@ -680,6 +703,24 @@ function openPaymentModal() {
   showPaymentModal.value = true
 }
 
+function assignPaymentFromLease(lease: ManagerLease) {
+  paymentError.value   = ''
+  paymentSuccess.value = ''
+  paymentForm.value = {
+    tenant_id:    lease.tenant_id,
+    lease_id:     lease.id,
+    room_id:      lease.room_id,
+    amount:       lease.monthly_rent ?? 0,
+    type:         'RENT',
+    method:       'CASH',
+    reference_no: '',
+    notes:        `Rent for lease ${lease.id.slice(0, 8)}`,
+    period_start: '',
+    period_end:   '',
+  }
+  showPaymentModal.value = true
+}
+
 function closePaymentModal() {
   showPaymentModal.value = false
   paymentError.value     = ''
@@ -747,6 +788,23 @@ async function confirmPayment(paymentId: string) {
     await loadManagerData()
   } catch (e: any) {
     error.value = e?.message ?? 'Failed to confirm payment.'
+  }
+}
+
+async function deleteLease(leaseId: string) {
+  if (!window.confirm('Delete this terminated lease? This cannot be undone.')) return
+  try {
+    const res = await fetch(`/api/manager/leases/${leaseId}`, {
+      method:  'DELETE',
+      headers: { Authorization: `Bearer ${auth.token}` },
+    })
+    if (!res.ok) {
+      const json = await res.json()
+      throw new Error(json?.detail ?? 'Failed to delete lease.')
+    }
+    await loadManagerData()
+  } catch (e: any) {
+    error.value = e?.message ?? 'Failed to delete lease.'
   }
 }
 </script>
@@ -820,6 +878,65 @@ async function confirmPayment(paymentId: string) {
             </div>
           </div>
 
+          <!-- ── Revenue + Occupancy Breakdown Row ─────────────── -->
+          <div class="charts-row" style="display:grid;grid-template-columns:3fr 2fr;gap:14px;margin-bottom:20px;">
+            <!-- Revenue Chart -->
+            <div class="panel">
+              <div class="panel-hdr">
+                <span class="panel-title">Revenue — last 6 months</span>
+                <button class="panel-link" @click="navigate('reports')">Full report</button>
+              </div>
+              <div v-if="dashAnalytics?.monthly_revenue?.length" class="rev-chart">
+                <div class="rev-bars">
+                  <div v-for="(m, i) in dashAnalytics.monthly_revenue" :key="i" class="rev-col">
+                    <div class="rev-bar-pair">
+                      <div class="rev-bar rev-target" :style="{ height: revBarHeight(m.target, dashAnalytics.monthly_revenue) + 'px' }" :title="'Target: ' + formatMoney(m.target)"></div>
+                      <div class="rev-bar rev-actual" :style="{ height: revBarHeight(m.revenue, dashAnalytics.monthly_revenue) + 'px' }" :title="'Actual: ' + formatMoney(m.revenue)"></div>
+                    </div>
+                    <span class="rev-label">{{ m.month.split(' ')[0] }}</span>
+                  </div>
+                </div>
+                <div class="rev-legend">
+                  <span class="rev-leg-item"><span class="rev-dot" style="background:#d1d5db"></span> Target</span>
+                  <span class="rev-leg-item"><span class="rev-dot" style="background:#6366f1"></span> Actual</span>
+                </div>
+              </div>
+              <div v-else class="td-muted" style="padding:32px 0">No revenue data yet.</div>
+            </div>
+
+            <!-- Occupancy Breakdown -->
+            <div class="panel">
+              <div class="panel-hdr">
+                <span class="panel-title">Occupancy breakdown</span>
+                <button class="panel-link" @click="navigate('rooms')">View rooms</button>
+              </div>
+              <div class="occ-wrap">
+                <div class="occ-donut-box">
+                  <svg viewBox="0 0 120 120" class="occ-donut">
+                    <circle cx="60" cy="60" r="50" fill="none" stroke="#e5e7eb" stroke-width="14"/>
+                    <circle cx="60" cy="60" r="50" fill="none" stroke="#6366f1" stroke-width="14"
+                      :stroke-dasharray="(Math.round(dashboard?.rooms?.occupancy_rate_pct ?? 0) / 100 * 314) + ' 314'"
+                      stroke-linecap="round" transform="rotate(-90 60 60)" />
+                  </svg>
+                  <div class="occ-center-label">
+                    <span class="occ-pct">{{ Math.round(dashboard?.rooms?.occupancy_rate_pct ?? 0) }}%</span>
+                    <span class="occ-sub">Occupied</span>
+                  </div>
+                </div>
+                <div v-if="dashAnalytics?.occupancy_by_type?.length" class="occ-types">
+                  <div v-for="t in dashAnalytics.occupancy_by_type" :key="t.type" class="occ-type-row">
+                    <span class="occ-type-name">{{ t.type }}</span>
+                    <div class="occ-type-bar-wrap">
+                      <div class="occ-type-bar" :style="{ width: t.pct + '%' }"></div>
+                    </div>
+                    <span class="occ-type-pct">{{ t.pct }}%</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── Bottom 3 panels ─────────────────────────────────── -->
           <div class="panels-row">
             <div class="panel">
               <div class="panel-hdr"><span class="panel-title">Recent payments</span><button class="panel-link" @click="navigate('payments')">View all</button></div>
@@ -827,8 +944,8 @@ async function confirmPayment(paymentId: string) {
                 <thead><tr><th>Tenant</th><th>Amount</th><th>Status</th></tr></thead>
                 <tbody>
                   <tr v-if="loading"><td colspan="3" class="td-muted">Loading…</td></tr>
-                  <tr v-for="p in payments.slice(0, 5)" :key="p.id">
-                    <td class="td-name">{{ p.tenant_id.slice(0, 8) }}</td>
+                  <tr v-for="p in payments.slice(0, 4)" :key="p.id">
+                    <td class="td-name">{{ tenantNameById(p.tenant_id) }}</td>
                     <td class="td-amt">{{ formatMoney(p.amount) }}</td>
                     <td><span class="badge" :class="paymentBadgeClass(p.status)">{{ p.status.charAt(0) + p.status.slice(1).toLowerCase() }}</span></td>
                   </tr>
@@ -841,8 +958,8 @@ async function confirmPayment(paymentId: string) {
               <div class="mq-list">
                 <div v-if="loading" class="td-muted">Loading…</div>
                 <div v-for="m in maintenance.slice(0, 4)" :key="m.id" class="mq-item">
-                  <div class="mq-body"><p class="mq-title">{{ m.title }}</p><p class="mq-sub">{{ m.tenant_id ? m.tenant_id.slice(0,6) : 'N/A' }} · {{ formatDate(m.created_at) }}</p></div>
-                  <span class="badge" :class="maintenanceBadgeClass(m.status)">{{ m.status.replace('_', ' ').toLowerCase().replace(/^\w/, c => c.toUpperCase()) }}</span>
+                  <div class="mq-body"><p class="mq-title">{{ m.title }}</p><p class="mq-sub">{{ tenantNameById(m.tenant_id) }} · {{ formatDate(m.created_at) }}</p></div>
+                  <span class="badge" :class="maintenanceBadgeClass(m.status)">{{ m.status.replace('_', ' ').toLowerCase().replace(/^\w/, (c: string) => c.toUpperCase()) }}</span>
                 </div>
                 <div v-if="!loading && maintenance.length === 0" class="td-muted">No maintenance requests.</div>
               </div>
@@ -859,19 +976,6 @@ async function confirmPayment(paymentId: string) {
               </div>
             </div>
           </div>
-
-          <div v-if="bookings.length > 0" class="panel mt16">
-            <div class="panel-hdr"><span class="panel-title">Pending applications ({{ bookings.length }})</span><button class="panel-link" @click="navigate('bookings')">View all</button></div>
-            <table class="ptable">
-              <thead><tr><th>Name</th><th>Room</th><th>Date</th><th>Actions</th></tr></thead>
-              <tbody>
-                <tr v-for="b in bookings.slice(0, 3)" :key="b.id" style="cursor:pointer" @click="viewBooking(b)">
-                  <td>{{ b.full_name }}</td><td>{{ b.room_number ?? b.room_id.slice(0,8) }}</td><td>{{ formatDate(b.created_at) }}</td>
-                  <td><button class="action-btn view" @click.stop="viewBooking(b)">View</button></td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
         </div>
 
         <!-- ════════════════════════ TENANTS ════════════════════════ -->
@@ -885,7 +989,6 @@ async function confirmPayment(paymentId: string) {
           :format-money="formatMoney"
           :format-date="formatDate"
           @update:tenant-search="tenantSearch = $event"
-          @confirm-tenant="confirmTenant"
           @unassign-tenant="handleUnassignTenant"
         />
 
@@ -912,8 +1015,11 @@ async function confirmPayment(paymentId: string) {
           :loading="loading"
           :dashboard="dashboard"
           :leases="leases"
+          :tenants="tenants"
           :format-date="formatDate"
           :format-money="formatMoney"
+          @assign-payment="assignPaymentFromLease"
+          @delete-lease="deleteLease"
         />
 
         <!-- ════════════════════════ PAYMENTS ════════════════════════ -->
@@ -1255,6 +1361,35 @@ async function confirmPayment(paymentId: string) {
 .modal-footer { display: flex; justify-content: flex-end; gap: 10px; padding-top: 4px; border-top: 1px solid #f3f0fb; margin-top: 4px; }
 .modal-fade-enter-active, .modal-fade-leave-active { transition: opacity .18s ease; }
 .modal-fade-enter-from, .modal-fade-leave-to { opacity: 0; }
+
+/* ── Revenue Chart ─────────────────────────── */
+.rev-chart { padding: 8px 0 0; }
+.rev-bars { display: flex; align-items: flex-end; justify-content: space-around; gap: 12px; height: 150px; padding: 0 8px; }
+.rev-col { display: flex; flex-direction: column; align-items: center; gap: 6px; flex: 1; }
+.rev-bar-pair { display: flex; align-items: flex-end; gap: 4px; height: 130px; }
+.rev-bar { width: 18px; border-radius: 4px 4px 0 0; transition: height .3s ease; }
+.rev-target { background: #d1d5db; }
+.rev-actual { background: #6366f1; }
+.rev-label { font-size: 11px; color: #9ca3af; font-weight: 500; }
+.rev-legend { display: flex; justify-content: center; gap: 18px; margin-top: 12px; font-size: 11px; color: #6b7280; }
+.rev-leg-item { display: flex; align-items: center; gap: 5px; }
+.rev-dot { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+
+/* ── Occupancy Breakdown ────────────────────── */
+.occ-wrap { display: flex; align-items: center; gap: 20px; padding: 8px 0; }
+.occ-donut-box { position: relative; width: 110px; height: 110px; flex-shrink: 0; }
+.occ-donut { width: 100%; height: 100%; }
+.occ-center-label { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.occ-pct { font-size: 22px; font-weight: 800; color: #160d27; line-height: 1; }
+.occ-sub { font-size: 10px; color: #9ca3af; margin-top: 2px; }
+.occ-types { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+.occ-type-row { display: flex; align-items: center; gap: 8px; }
+.occ-type-name { font-size: 12px; font-weight: 600; color: #374151; width: 60px; flex-shrink: 0; }
+.occ-type-bar-wrap { flex: 1; height: 8px; background: #e5e7eb; border-radius: 4px; overflow: hidden; }
+.occ-type-bar { height: 100%; background: #6366f1; border-radius: 4px; transition: width .3s ease; }
+.occ-type-pct { font-size: 12px; font-weight: 700; color: #374151; width: 36px; text-align: right; }
+@media (max-width: 900px) { .charts-row { grid-template-columns: 1fr !important; } .occ-wrap { flex-direction: column; } }
+.action-btn.danger { background: #fee2e2; color: #991b1b; }
 </style>
 
 <style>

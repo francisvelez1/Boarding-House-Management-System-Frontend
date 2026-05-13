@@ -15,7 +15,6 @@ defineProps<{
 
 const emit = defineEmits<{
   (e: 'update:tenantSearch', v: string): void
-  (e: 'confirm-tenant', id: string, name: string): void
   (e: 'unassign-tenant', id: string, name: string): void
 }>()
 </script>
@@ -48,10 +47,7 @@ const emit = defineEmits<{
             <td :class="t.outstanding_balance > 0 ? 'td-danger' : ''">{{ formatMoney(t.outstanding_balance) }}</td>
             <td class="td-muted">{{ formatDate(t.created_at) }}</td>
             <td class="td-actions">
-              <button v-if="t.is_reserved" class="action-btn confirm" title="Confirm tenant as occupant" @click="emit('confirm-tenant', t.id, t.full_name)">
-                ✓ Confirm
-              </button>
-              <button v-else class="action-btn unassign" title="Unassign tenant — frees room and removes records" @click="emit('unassign-tenant', t.id, t.full_name)">
+              <button class="action-btn unassign" title="Unassign tenant — frees room and removes records" @click="emit('unassign-tenant', t.id, t.full_name)">
                 Unassign
               </button>
             </td>

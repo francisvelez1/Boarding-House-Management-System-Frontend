@@ -50,3 +50,10 @@ export async function getUnreadCount(): Promise<number> {
   const data = unwrap(res)
   return data?.unread_messages ?? 0
 }
+
+// ── Get manager user_id for the current tenant ───────────────────────────
+export async function getMyManager(): Promise<string> {
+  const res = await axios.get('/api/messages/my-manager', { headers: getHeaders() })
+  const data = unwrap(res)
+  return data?.manager_user_id ?? ''
+}
