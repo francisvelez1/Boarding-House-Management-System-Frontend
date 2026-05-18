@@ -18,6 +18,10 @@ export interface Payment {
 const props = defineProps<{
   payments: Payment[]
   payLoading?: boolean
+  // Optional lease used to render a fallback "Pay this month's rent" button
+  // when there is no outstanding PENDING payment row to settle. Lets the
+  // tenant proactively pay rent that hasn't been formally assigned yet.
+  lease?: { monthly_rate?: number } | null
 }>()
 
 const emit = defineEmits<{
@@ -35,6 +39,27 @@ const METHOD_LABEL: Record<string, string> = {
 }
 
 const pendingPayment = computed(() => props.payments.find(p => p.status === 'Unpaid'))
+
+// What the "Pay rent" button should do when clicked:
+//   - If there is a PENDING / Unpaid row, settle that one (its amount & label).
+//   - Otherwise fall back to a proactive payment for the current month's rent
+//     based on the lease's monthly_rate.
+const payAction = computed<{ amount: number; label: string } | null>(() => {
+  if (pendingPayment.value) {
+    return {
+      amount: Number(pendingPayment.value.amount) || 0,
+      label:  String(pendingPayment.value.label ?? 'rent'),
+    }
+  }
+  const rate = Number(props.lease?.monthly_rate ?? 0)
+  if (!props.lease || rate <= 0) return null
+
+  const monthYear = new Date().toLocaleDateString('en-US', {
+    month: 'long',
+    year:  'numeric',
+  })
+  return { amount: rate, label: `${monthYear} rent` }
+})
 </script>
 
 <template>
@@ -71,12 +96,12 @@ const pendingPayment = computed(() => props.payments.find(p => p.status === 'Unp
 
     <template #footer>
       <button
-        v-if="pendingPayment"
+        v-if="payAction"
         class="pay-btn"
         :disabled="payLoading"
-        @click="emit('payNow', pendingPayment.amount)"
+        @click="emit('payNow', payAction.amount)"
       >
-        {{ payLoading ? 'Redirecting to PayPal…' : `Pay ${pendingPayment.label} — ${formatCurrency(pendingPayment.amount)}` }}
+        {{ payLoading ? 'Redirecting to PayPal…' : `Pay ${payAction.label} — ${formatCurrency(payAction.amount)}` }}
       </button>
     </template>
   </BaseCardComponent>

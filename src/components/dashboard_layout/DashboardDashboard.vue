@@ -10,6 +10,10 @@ export type AdminUserRow = {
   role: AdminRole
   status: AdminStatus
   lastLogin: string
+  // Full localized timestamp surfaced via the `<td title="...">`
+  // tooltip so an admin can see the exact session moment by hovering
+  // any "3h ago" / "2d ago" cell.
+  lastLoginTitle: string
 }
 
 const props = withDefaults(defineProps<{
@@ -223,7 +227,7 @@ function auditGlyph(kind: (typeof auditEntries)[number]['kind']) {
                   </td>
                   <td><span class="pill" :class="roleBadgeClass(u.role)">{{ roleLabel(u.role) }}</span></td>
                   <td><span class="pill" :class="statusBadgeClass(u.status)">{{ u.status.charAt(0) + u.status.slice(1).toLowerCase() }}</span></td>
-                  <td class="td-muted">{{ u.lastLogin }}</td>
+                  <td class="td-muted" :title="u.lastLoginTitle">{{ u.lastLogin }}</td>
                   <td>
                     <div class="actions">
                       <template v-if="u.status === 'ACTIVE'">
@@ -321,7 +325,7 @@ function auditGlyph(kind: (typeof auditEntries)[number]['kind']) {
                 </td>
                 <td><span class="pill" :class="roleBadgeClass(u.role)">{{ roleLabel(u.role) }}</span></td>
                 <td><span class="pill" :class="statusBadgeClass(u.status)">{{ u.status.charAt(0) + u.status.slice(1).toLowerCase() }}</span></td>
-                <td class="td-muted">{{ u.lastLogin }}</td>
+                <td class="td-muted" :title="u.lastLoginTitle">{{ u.lastLogin }}</td>
                 <td>
                   <div class="actions">
                     <template v-if="u.status === 'ACTIVE'">

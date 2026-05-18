@@ -18,7 +18,7 @@ const emit = defineEmits<{
   <div v-show="true" id="payments">
     <main class="content">
       <section class="section--full">
-        <PaymentsCard v-if="paymentsForCard.length" :payments="paymentsForCard" :pay-loading="payNowLoading" @pay-now="emit('pay-now', $event)" @view-all="emit('scroll-to', 'payments')" />
+        <PaymentsCard v-if="paymentsForCard.length" :payments="paymentsForCard" :pay-loading="payNowLoading" :lease="lease" @pay-now="emit('pay-now', $event)" @view-all="emit('scroll-to', 'payments')" />
         <div v-else class="empty-card">
           <div class="empty-card__header">
             <span class="empty-card__title">Payments</span>

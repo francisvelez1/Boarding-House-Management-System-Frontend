@@ -21,6 +21,7 @@ type AdminUserRow = {
   role: AdminRole
   status: AdminStatus
   lastLogin: string
+  lastLoginTitle: string
 }
 
 const router = useRouter()
@@ -71,6 +72,10 @@ function toRoleLabel(role: AdminRole): string {
   return map[role] ?? 'Tenant'
 }
 
+// Cell text: short, scannable. Recent sessions read as "Xm/h ago" so a
+// quick glance shows live activity; older sessions fall back to an
+// absolute calendar date so the column never becomes a meaningless
+// "423d ago".
 function formatLastLogin(value?: string | null): string {
   if (!value) return 'Never'
   const date = new Date(value)
@@ -82,7 +87,21 @@ function formatLastLogin(value?: string | null): string {
   const hrs = Math.floor(mins / 60)
   if (hrs < 24) return `${hrs}h ago`
   const days = Math.floor(hrs / 24)
-  return `${days}d ago`
+  if (days < 7) return `${days}d ago`
+  // > 1 week: absolute date is more informative.
+  return date.toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' })
+}
+
+// Tooltip (title attribute): always the full localized timestamp so an
+// admin can hover any cell and see the exact session moment.
+function formatLastLoginFull(value?: string | null): string {
+  if (!value) return 'Has never logged in'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString('en-PH', {
+    year: 'numeric', month: 'short', day: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  })
 }
 
 function mapUser(u: AdminUserSummary): AdminUserRow {
@@ -92,7 +111,8 @@ function mapUser(u: AdminUserSummary): AdminUserRow {
     email: u.email,
     role: u.role,
     status: u.status,
-    lastLogin: formatLastLogin(u.last_login),
+    lastLogin:      formatLastLogin(u.last_login),
+    lastLoginTitle: formatLastLoginFull(u.last_login),
   }
 }
 

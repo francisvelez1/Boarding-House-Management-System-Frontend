@@ -22,7 +22,10 @@ import {
   type PaymentStats,
 } from '../../services/managerService'
 import { bookingService, type BookingItem } from '../../services/bookingService'
-import { tenantService, roomService, type TenantResponse, type TenantStats, type RoomCreateRequest, type RoomType, type FloorLevel } from '../../services/domainServices'
+// `tenantService` is no longer used here — the manager dashboard reads
+// tenants from /api/manager/tenants (managerService.listTenants) so that
+// it only sees tenants in rooms it owns.
+import { roomService, type TenantResponse, type TenantStats, type RoomCreateRequest, type RoomType, type FloorLevel } from '../../services/domainServices'
 import { notificationService, type NotificationItem } from '../../services/notificationService'
 
 type Section = 'dashboard' | 'tenants' | 'rooms' | 'leases' | 'payments' | 'reports' | 'maintenance' | 'messages' | 'bookings'
@@ -285,51 +288,16 @@ const filteredTenants = computed(() =>
     : activeTenants.value
 )
 
-interface ReservedTenant {
-  id: string
-  full_name: string
-  email: string
-  phone: string
-  room_id?: string
-  room_number?: string
-  status: 'RESERVED'
-  outstanding_balance: number
-  created_at: string
-  is_reserved: true
-}
+// Booking approval now creates an ACTIVE tenant + ACTIVE lease + OCCUPIED room
+// in a single atomic backend step (see booking_request_controller.review_booking).
+// The redundant "Reserved" duplicate rows are no longer rendered. We keep an
+// empty `reservedTenants` array so any remaining template/header references
+// continue to compile.
+const reservedTenants = computed(() => [] as never[])
 
-const reservedTenants = computed<ReservedTenant[]>(() => {
-  const activeRoomIds = new Set(
-    rooms.value
-      .filter(r => r.status === 'RESERVED' || r.status === 'OCCUPIED')
-      .map(r => r.id)
-  )
-  return approvedBookings.value
-    .filter(b => activeRoomIds.has(b.room_id))
-    .map(b => ({
-      id: b.id,
-      full_name: b.full_name,
-      email: b.email,
-      phone: b.phone,
-      room_id: b.room_id,
-      room_number: b.room_number,
-      status: 'RESERVED' as const,
-      outstanding_balance: 0,
-      created_at: b.created_at,
-      is_reserved: true as const,
-    }))
-})
-
-const allTenantsDisplay = computed(() => {
-  const regular = filteredTenants.value.map(t => ({ ...t, is_reserved: false as const }))
-  const reserved = reservedTenants.value.filter(r =>
-    !tenantSearch.value ||
-    r.full_name.toLowerCase().includes(tenantSearch.value.toLowerCase()) ||
-    r.email.toLowerCase().includes(tenantSearch.value.toLowerCase()) ||
-    r.phone.includes(tenantSearch.value)
-  )
-  return [...regular, ...reserved]
-})
+const allTenantsDisplay = computed(() =>
+  filteredTenants.value.map(t => ({ ...t, is_reserved: false as const }))
+)
 
 const filteredRooms = computed(() =>
   roomSearch.value
@@ -380,7 +348,14 @@ function formatMoney(value?: number) {
 function formatMoneyShort(value?: number) {
   const v = value ?? 0
   if (v >= 1_000_000) return `₱${(v / 1_000_000).toFixed(1)}M`
-  if (v >= 1_000) return `₱${Math.round(v / 1_000)}k`
+  // Use 1 decimal place for the "k" range so ₱2,501 renders as "₱2.5k"
+  // instead of "₱3k" (which is what `Math.round(2501/1000)` produced and
+  // made the Monthly revenue card look wildly off-by-500). Strip a
+  // trailing ".0" so round thousands still render compactly ("₱5k").
+  if (v >= 1_000) {
+    const k = (v / 1_000).toFixed(1).replace(/\.0$/, '')
+    return `₱${k}k`
+  }
   return `₱${v}`
 }
 
@@ -410,7 +385,9 @@ function maintenanceBadgeClass(status: string) {
 function tenantNameById(id?: string): string {
   if (!id) return '—'
   const t = tenants.value.find(t => t.id === id)
-  return t?.full_name ?? id.slice(0, 8)
+  // Show a placeholder rather than a truncated ObjectId — the latter
+  // looks like a hash in the UI and confused users.
+  return t?.full_name ?? '—'
 }
 
 function revBarHeight(val: number, data: { revenue: number; target: number }[]): number {
@@ -455,13 +432,17 @@ async function loadManagerData() {
   loading.value = true
   error.value   = ''
   try {
+    // All list/stat calls below now hit /api/manager/* endpoints which
+    // are scoped to "rooms this manager owns" — see backend
+    // controllers/manager_controller.py::_manager_room_id_set. That is
+    // what prevents Manager B from seeing Manager A's data.
     const [dashRes, roomsRes, leasesRes, paymentsRes, maintRes, bookingsRes, statsRes, notifRes] = await Promise.allSettled([
       managerService.getDashboard(),
       managerService.listRooms(),
       managerService.listLeases(),
       managerService.listPayments(),
       managerService.listMaintenance(),
-      bookingService.listAll({ status: 'PENDING', limit: 50 }),
+      managerService.listBookings({ status: 'PENDING', limit: 50 }),
       managerService.getPaymentStats(),
       notificationService.getUnread(10),
     ])
@@ -481,15 +462,15 @@ async function loadManagerData() {
     if (statsRes.status === 'fulfilled')    paymentStats.value  = statsRes.value
     if (notifRes.status === 'fulfilled')    notifications.value = notifRes.value
 
-    const approvedRes = await bookingService.listAll({ status: 'APPROVED', limit: 50 })
+    const approvedRes = await managerService.listBookings({ status: 'APPROVED', limit: 50 })
     approvedBookings.value = approvedRes.bookings ?? []
 
     const [tListRes, tStatsRes] = await Promise.allSettled([
-      tenantService.getAll({ limit: 100 }),
-      tenantService.getStats(),
+      managerService.listTenants(100),
+      managerService.getTenantStats(),
     ])
-    if (tListRes.status === 'fulfilled')   tenants.value      = tListRes.value.data ?? []
-    if (tStatsRes.status === 'fulfilled')  tenantStats.value  = tStatsRes.value.data ?? null
+    if (tListRes.status === 'fulfilled')   tenants.value      = tListRes.value ?? []
+    if (tStatsRes.status === 'fulfilled')  tenantStats.value  = tStatsRes.value ?? null
 
     // Load analytics for dashboard charts (non-blocking)
     managerService.getAnalytics()
@@ -562,65 +543,11 @@ async function rejectBooking(id: string) {
   }
 }
 
-// ── CONFIRM reserved tenant → create a lease ──────────────────────────────────
-async function confirmTenant(bookingId: string, fullName: string) {
-  if (!window.confirm(`Confirm ${fullName} as an active occupant? This will create an active lease for them.`)) return
-  try {
-    const booking = approvedBookings.value.find(b => b.id === bookingId)
-    if (!booking?.room_id) throw new Error('Booking has no linked room — reload and try again.')
-
-    const tenant = tenants.value.find(t => t.user_id === booking.user_id)
-    if (!tenant?.id) throw new Error(
-      `No tenant profile found for ${fullName}. They may need to complete account setup first.`
-    )
-
-    const room  = rooms.value.find(r => r.id === booking.room_id)
-    const today = new Date().toISOString().split('T')[0]
-    const oneYearLater = new Date(new Date().setFullYear(new Date().getFullYear() + 1))
-      .toISOString().split('T')[0]
-
-    let monthlyRate = room?.monthly_rent ?? 0
-    if (monthlyRate <= 0) {
-      const input = window.prompt(
-        `Room ${room?.room_number ?? booking.room_id} has no monthly rate set.\nEnter the monthly rate (₱):`,
-        ''
-      )
-      if (input === null) return
-      monthlyRate = parseFloat(input)
-      if (isNaN(monthlyRate) || monthlyRate <= 0) {
-        error.value = 'A valid monthly rate greater than ₱0 is required to create a lease.'
-        return
-      }
-    }
-
-    const res = await fetch('/api/leases/', {
-      method:  'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization:  `Bearer ${auth.token}`,
-      },
-      body: JSON.stringify({
-        tenant_id:    tenant.id,
-        room_id:      booking.room_id,
-        start_date:   today,
-        end_date:     oneYearLater,
-        monthly_rate: monthlyRate,
-      }),
-    })
-
-    if (!res.ok) {
-      const json = await res.json().catch(() => ({}))
-      throw new Error(extractFetchError(json, 'Failed to create lease.'))
-    }
-
-    if (room) room.status = 'OCCUPIED'
-    approvedBookings.value = approvedBookings.value.filter(b => b.id !== bookingId)
-
-    await loadManagerData()
-  } catch (e: any) {
-    error.value = extractError(e, 'Failed to confirm tenant.')
-  }
-}
+// Removed: confirmTenant / confirmPayment.
+// Booking approval now atomically creates an ACTIVE tenant + ACTIVE lease +
+// OCCUPIED room (see booking_request_controller.review_booking). Manually-
+// recorded payments are CONFIRMED immediately by record_payment, so the
+// per-row "Confirm" action in the Payments tab is no longer needed.
 
 async function updateMaintenanceStatus(
   id: string,
@@ -665,11 +592,22 @@ async function updateMaintenanceStatus(
 
 onMounted(() => { void loadManagerData() })
 
-// ── Record Payment Modal ──────────────────────────────────────────────────────
+// ── Payment Modal ─────────────────────────────────────────────────────────────
+// Two modes share one modal:
+//   - 'record': "+ Record Payment" on the Payments tab. Money already
+//               received. Backend marks it CONFIRMED and decrements the
+//               lease's outstanding_balance.
+//   - 'assign': "+ Assign Payment" on the Leases tab. A new charge the
+//               tenant still has to pay. Backend marks it PENDING and
+//               increments the lease's outstanding_balance.
 const showPaymentModal = ref(false)
 const paymentLoading   = ref(false)
 const paymentError     = ref('')
 const paymentSuccess   = ref('')
+// Always 'assign' now — the modal is only entered from the Leases tab's
+// "+ Assign Payment" action. The 'record' branch is retained in the modal
+// template purely as a safety net in case the flow is ever re-introduced.
+const paymentMode      = ref<'record' | 'assign'>('assign')
 const paymentForm = ref({
   tenant_id:    '',
   lease_id:     '',
@@ -683,29 +621,10 @@ const paymentForm = ref({
   period_end:   '',
 })
 
-function openPaymentModal() {
-  paymentError.value   = ''
-  paymentSuccess.value = ''
-  const first = tenants.value[0]
-  const firstLease = leases.value[0]
-  paymentForm.value = {
-    tenant_id:    first?.id ?? '',
-    lease_id:     firstLease?.id ?? '',
-    room_id:      firstLease?.room_id ?? first?.room_id ?? '',
-    amount:       0,
-    type:         'RENT',
-    method:       'CASH',
-    reference_no: '',
-    notes:        '',
-    period_start: '',
-    period_end:   '',
-  }
-  showPaymentModal.value = true
-}
-
 function assignPaymentFromLease(lease: ManagerLease) {
   paymentError.value   = ''
   paymentSuccess.value = ''
+  paymentMode.value    = 'assign'
   paymentForm.value = {
     tenant_id:    lease.tenant_id,
     lease_id:     lease.id,
@@ -753,6 +672,10 @@ async function submitPayment() {
       amount:    Number(paymentForm.value.amount),
       type:      paymentForm.value.type,
       method:    paymentForm.value.method,
+      // Tell the backend which lifecycle the row should start in:
+      // - 'assign'  → PENDING (charge owed → bumps lease.outstanding_balance)
+      // - 'record'  → CONFIRMED (money received → bumps lease.total_paid)
+      status:    paymentMode.value === 'assign' ? 'PENDING' : 'CONFIRMED',
     }
     if (paymentForm.value.reference_no) payload.reference_no = paymentForm.value.reference_no
     if (paymentForm.value.notes)        payload.notes        = paymentForm.value.notes
@@ -765,29 +688,20 @@ async function submitPayment() {
       body:    JSON.stringify(payload),
     })
     const json = await res.json()
-    if (!res.ok) throw new Error(json?.detail ?? json?.message ?? 'Failed to record payment.')
-    paymentSuccess.value = `Payment recorded! Receipt: ${json.receipt_number ?? '—'}`
+    if (!res.ok) {
+      throw new Error(
+        json?.detail ?? json?.message ??
+        (paymentMode.value === 'assign' ? 'Failed to assign payment.' : 'Failed to record payment.')
+      )
+    }
+    paymentSuccess.value = paymentMode.value === 'assign'
+      ? `Payment assigned — tenant has been notified. Receipt: ${json.receipt_number ?? '—'}`
+      : `Payment recorded! Receipt: ${json.receipt_number ?? '—'}`
     await loadManagerData()
   } catch (e: any) {
-    paymentError.value = e?.message ?? 'Failed to record payment.'
+    paymentError.value = e?.message ?? 'Failed to submit payment.'
   } finally {
     paymentLoading.value = false
-  }
-}
-
-async function confirmPayment(paymentId: string) {
-  try {
-    const res = await fetch(`/api/manager/payments/${paymentId}/confirm`, {
-      method:  'PATCH',
-      headers: { Authorization: `Bearer ${auth.token}` },
-    })
-    if (!res.ok) {
-      const json = await res.json()
-      throw new Error(json?.detail ?? 'Failed to confirm payment.')
-    }
-    await loadManagerData()
-  } catch (e: any) {
-    error.value = e?.message ?? 'Failed to confirm payment.'
   }
 }
 
@@ -936,6 +850,48 @@ async function deleteLease(leaseId: string) {
             </div>
           </div>
 
+          <!-- ── Pending Booking Requests (dedicated card) ────────── -->
+          <div class="panel booking-req-panel" style="margin-bottom:20px">
+            <div class="panel-hdr">
+              <span class="panel-title">
+                Pending booking requests
+                <span v-if="bookings.length" class="booking-count-pill">{{ bookings.length }}</span>
+              </span>
+              <button class="panel-link" @click="navigate('bookings')">View all</button>
+            </div>
+            <div v-if="loading" class="td-muted" style="padding:24px 0;text-align:center">Loading…</div>
+            <div v-else-if="bookings.length === 0" class="td-muted" style="padding:32px 0;text-align:center">
+              No pending booking requests.
+            </div>
+            <div v-else class="booking-cards-grid">
+              <div v-for="b in bookings.slice(0, 6)" :key="b.id" class="booking-card">
+                <div class="booking-card-hdr">
+                  <div class="booking-card-avatar">{{ (b.full_name || '?').charAt(0).toUpperCase() }}</div>
+                  <div class="booking-card-meta">
+                    <p class="booking-card-name">{{ b.full_name }}</p>
+                    <p class="booking-card-sub">Room {{ b.room_number ?? b.room_id.slice(0, 6) }} · {{ formatDate(b.created_at) }}</p>
+                  </div>
+                </div>
+                <p class="booking-card-line"><span class="booking-card-key">Email:</span> {{ b.email }}</p>
+                <p class="booking-card-line"><span class="booking-card-key">Phone:</span> {{ b.phone }}</p>
+                <p v-if="b.desired_move_in_date" class="booking-card-line">
+                  <span class="booking-card-key">Move-in:</span> {{ formatDate(b.desired_move_in_date) }}
+                </p>
+                <div class="booking-card-actions">
+                  <button class="action-btn approve" @click="approveBooking(b.id)">&#10003; Approve</button>
+                  <button
+                    class="action-btn reject"
+                    @click="rejectBooking(b.id)"
+                    :title="confirmRejectId === b.id ? 'Click again to confirm' : 'Reject this application'"
+                  >
+                    {{ confirmRejectId === b.id ? 'Confirm Reject' : '✕ Reject' }}
+                  </button>
+                  <button class="action-btn outline" @click="viewBooking(b)">View</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- ── Bottom 3 panels ─────────────────────────────────── -->
           <div class="panels-row">
             <div class="panel">
@@ -1016,6 +972,7 @@ async function deleteLease(leaseId: string) {
           :dashboard="dashboard"
           :leases="leases"
           :tenants="tenants"
+          :rooms="rooms"
           :format-date="formatDate"
           :format-money="formatMoney"
           @assign-payment="assignPaymentFromLease"
@@ -1033,8 +990,6 @@ async function deleteLease(leaseId: string) {
           :format-money-short="formatMoneyShort"
           :format-date="formatDate"
           :payment-badge-class="paymentBadgeClass"
-          @open-payment-modal="openPaymentModal"
-          @confirm-payment="confirmPayment"
         />
 
         <!-- ════════════════════════ REPORTS ════════════════════════ -->
@@ -1209,11 +1164,28 @@ async function deleteLease(leaseId: string) {
       </div>
     </Transition>
 
-    <!-- ════════════ RECORD PAYMENT MODAL ════════════ -->
+    <!-- ════════════ RECORD / ASSIGN PAYMENT MODAL ════════════ -->
     <Transition name="modal-fade">
       <div v-if="showPaymentModal" class="modal-overlay" @click.self="closePaymentModal">
-        <div class="modal-box" role="dialog" aria-modal="true" aria-label="Record Payment">
-          <div class="modal-hdr"><h2 class="modal-title">Record Payment</h2><button class="modal-close" @click="closePaymentModal">✕</button></div>
+        <div class="modal-box" role="dialog" aria-modal="true" :aria-label="paymentMode === 'assign' ? 'Assign Payment' : 'Record Payment'">
+          <div class="modal-hdr">
+            <h2 class="modal-title">{{ paymentMode === 'assign' ? 'Assign Payment' : 'Record Payment' }}</h2>
+            <button class="modal-close" @click="closePaymentModal">✕</button>
+          </div>
+          <p
+            v-if="paymentMode === 'assign'"
+            style="margin:4px 24px 0;font-size:12px;color:#7c6fb0;"
+          >
+            Creates a <strong>pending charge</strong> the tenant still has to pay.
+            It will appear as <em>PENDING</em> and increase their outstanding balance.
+          </p>
+          <p
+            v-else
+            style="margin:4px 24px 0;font-size:12px;color:#7c6fb0;"
+          >
+            Records money <strong>already received</strong>. It will be marked
+            <em>CONFIRMED</em> immediately and reduce the outstanding balance.
+          </p>
           <div v-if="paymentError" class="form-error">{{ paymentError }}</div>
           <div v-if="paymentSuccess" style="margin:0 24px;padding:10px 12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:9px;color:#166534;font-size:12.5px;">{{ paymentSuccess }}</div>
           <div class="modal-form">
@@ -1233,7 +1205,16 @@ async function deleteLease(leaseId: string) {
               <div class="form-group"><label>Period End</label><input v-model="paymentForm.period_end" type="date" class="form-input" /></div>
             </div>
             <div class="form-group"><label>Notes</label><textarea v-model="paymentForm.notes" class="form-textarea" rows="2" placeholder="Optional notes…"></textarea></div>
-            <div class="modal-footer"><button type="button" class="btn-outline" @click="closePaymentModal">Cancel</button><button type="button" class="btn-primary" :disabled="paymentLoading" @click="submitPayment">{{ paymentLoading ? 'Recording…' : 'Record Payment' }}</button></div>
+            <div class="modal-footer">
+              <button type="button" class="btn-outline" @click="closePaymentModal">Cancel</button>
+              <button type="button" class="btn-primary" :disabled="paymentLoading" @click="submitPayment">
+                {{
+                  paymentLoading
+                    ? (paymentMode === 'assign' ? 'Assigning…' : 'Recording…')
+                    : (paymentMode === 'assign' ? 'Assign Payment' : 'Record Payment')
+                }}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -1333,6 +1314,57 @@ async function deleteLease(leaseId: string) {
 @media (max-width: 1200px) { .panels-row { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 1100px) { .stats-grid { grid-template-columns: repeat(2, 1fr); } .stats-grid.mini { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 800px)  { .panels-row { grid-template-columns: 1fr; } .page-hdr { flex-direction: column; gap: 12px; } }
+
+/* ── Pending booking requests card ─────────────────────────────────────── */
+.booking-req-panel .panel-title { display: inline-flex; align-items: center; gap: 8px; }
+.booking-count-pill {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 22px; height: 22px; padding: 0 8px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #ae68fa, #f1966e);
+  color: #fff; font-size: 11px; font-weight: 800;
+}
+.booking-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.booking-card {
+  background: linear-gradient(180deg, #faf7ff 0%, #fff 100%);
+  border: 1px solid #e8e3fb;
+  border-radius: 12px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: box-shadow .15s ease, transform .15s ease;
+}
+.booking-card:hover {
+  box-shadow: 0 10px 24px -14px rgba(149,132,226,.45);
+  transform: translateY(-1px);
+}
+.booking-card-hdr { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+.booking-card-avatar {
+  width: 38px; height: 38px; border-radius: 50%;
+  background: linear-gradient(135deg, #ae68fa, #f1966e);
+  color: #fff; font-weight: 800; font-size: 16px;
+  display: grid; place-items: center; flex-shrink: 0;
+}
+.booking-card-meta { min-width: 0; }
+.booking-card-name {
+  margin: 0; font-size: 14px; font-weight: 700; color: #160d27;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.booking-card-sub { margin: 2px 0 0; font-size: 11px; color: #8b7fb3; }
+.booking-card-line {
+  margin: 0; font-size: 12px; color: #4b5563;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.booking-card-key { color: #9ca3af; font-weight: 600; margin-right: 4px; }
+.booking-card-actions { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+.booking-card-actions .action-btn { padding: 6px 10px; font-size: 11px; }
+@media (max-width: 1200px) { .booking-cards-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 700px)  { .booking-cards-grid { grid-template-columns: 1fr; } }
 @media (max-width: 600px)  { .stats-grid { grid-template-columns: 1fr; } .content { padding: 16px; } }
 .modal-overlay { position: fixed; inset: 0; z-index: 9999; background: rgba(22, 13, 39, .55); display: flex; align-items: center; justify-content: center; padding: 24px; }
 .modal-box { background: #fff; border-radius: 18px; width: 100%; max-width: 560px; max-height: 90vh; overflow-y: auto; box-shadow: 0 24px 80px rgba(22,13,39,.28); display: flex; flex-direction: column; }

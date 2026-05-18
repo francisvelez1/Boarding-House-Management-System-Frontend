@@ -47,7 +47,11 @@ const emit = defineEmits<{
             <td :class="t.outstanding_balance > 0 ? 'td-danger' : ''">{{ formatMoney(t.outstanding_balance) }}</td>
             <td class="td-muted">{{ formatDate(t.created_at) }}</td>
             <td class="td-actions">
-              <button class="action-btn unassign" title="Unassign tenant — frees room and removes records" @click="emit('unassign-tenant', t.id, t.full_name)">
+              <button
+                class="action-btn unassign"
+                title="Unassign tenant — frees room and removes records"
+                @click="emit('unassign-tenant', t.id, t.full_name)"
+              >
                 Unassign
               </button>
             </td>

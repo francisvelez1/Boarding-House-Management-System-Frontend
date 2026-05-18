@@ -18,6 +18,34 @@ const router = createRouter({
       meta: { requiresAuth: false },
     },
 
+    // PayPal return / capture handler — must remain authenticated so the
+    // capture call carries the tenant's JWT. We register both /payment/* and
+    // /payments/* spellings so existing PAYPAL_RETURN_URL values still work.
+    {
+      path: '/payment/return',
+      name: 'PaypalReturn',
+      component: () => import('../views/Payment/PaypalReturn.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/payment/cancel',
+      name: 'PaypalCancel',
+      component: () => import('../views/Payment/PaypalReturn.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/payments/success',
+      name: 'PaypalSuccessAlias',
+      component: () => import('../views/Payment/PaypalReturn.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/payments/cancel',
+      name: 'PaypalCancelAlias',
+      component: () => import('../views/Payment/PaypalReturn.vue'),
+      meta: { requiresAuth: true },
+    },
+
     // ── Protected Routes ──
     {
       path: '/admin',

@@ -1,15 +1,27 @@
 <script setup lang="ts">
+import { RoomType, TYPE_LABEL } from '../../models/room'
+
+// `searchCategory` and `selectedType` are intentionally separate props:
+//   - `searchCategory` is the value of the hero's quick-pick dropdown.
+//   - The page binds it to the same reactive ref as the FilterBar's
+//     `selectedType`, so changing one updates the other.
 defineProps<{
   availableCount: number
   searchLocation: string
   searchPrice: string
+  searchCategory?: string   // 'All' | RoomType — defaults to 'All'
 }>()
 
 const emit = defineEmits<{
   (e: 'update:searchLocation', val: string): void
   (e: 'update:searchPrice',    val: string): void
+  (e: 'update:searchCategory', val: string): void
   (e: 'search'): void
 }>()
+
+const categoryOptions = ['All', ...Object.values(RoomType)] as const
+const categoryLabel = (c: string) =>
+  c === 'All' ? 'Any category' : TYPE_LABEL[c as RoomType] ?? c
 </script>
 
 <template>
@@ -34,10 +46,21 @@ const emit = defineEmits<{
         <input
           :value="searchLocation"
           type="text"
-          placeholder="Search location..."
+          placeholder="Search by city, property or room…"
           class="input-minimal"
           @input="emit('update:searchLocation', ($event.target as HTMLInputElement).value)"
         />
+      </div>
+      <div class="v-divider"></div>
+      <div class="category-group">
+        <span class="icon">🏷</span>
+        <select
+          :value="searchCategory ?? 'All'"
+          class="input-minimal"
+          @change="emit('update:searchCategory', ($event.target as HTMLSelectElement).value)"
+        >
+          <option v-for="c in categoryOptions" :key="c" :value="c">{{ categoryLabel(c) }}</option>
+        </select>
       </div>
       <div class="v-divider"></div>
       <div class="price-group">
@@ -88,9 +111,11 @@ const emit = defineEmits<{
   display: flex; align-items: center;
   box-shadow: 0 20px 50px rgba(149,132,226,0.15);
   border: 1px solid rgba(210,196,255,0.4);
-  width: 100%; max-width: 650px; margin: 0 auto;
+  width: 100%; max-width: 780px; margin: 0 auto;
 }
-.search-group { flex: 1; display: flex; align-items: center; padding-left: 15px; }
+.search-group   { flex: 1; display: flex; align-items: center; padding-left: 15px; }
+.category-group { display: flex; align-items: center; min-width: 0; }
+.price-group    { display: flex; align-items: center; min-width: 0; }
 .icon         { margin-right: 6px; }
 .input-minimal {
   border: none; outline: none; width: 100%;

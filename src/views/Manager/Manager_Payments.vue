@@ -15,17 +15,15 @@ defineProps<{
   paymentBadgeClass: (status: string) => string
 }>()
 
-const emit = defineEmits<{
-  (e: 'open-payment-modal'): void
-  (e: 'confirm-payment', id: string): void
-}>()
+// No emits — the Payments tab is now read-only.
+// Managers create charges from the Leases tab via "+ Assign Payment";
+// tenants settle them from their own dashboard.
 </script>
 
 <template>
   <div>
     <div class="page-hdr">
       <div><h1 class="page-title">Payments</h1><p class="page-sub">{{ paymentStats?.paid_count ?? 0 }} paid · {{ paymentStats?.unpaid_count ?? 0 }} unpaid · {{ paymentStats?.partial_count ?? 0 }} partial</p></div>
-      <div class="hdr-actions"><button class="btn-primary" @click="emit('open-payment-modal')">+ Record Payment</button></div>
     </div>
     <div class="stats-grid mini">
       <div class="mini-stat"><span>Total collected</span><strong>{{ formatMoney(paymentStats?.total_collected) }}</strong></div>
@@ -35,21 +33,17 @@ const emit = defineEmits<{
     </div>
     <div class="panel">
       <table class="ptable full">
-        <thead><tr><th>Tenant</th><th>Amount</th><th>Type</th><th>Method</th><th>Receipt</th><th>Status</th><th>Date</th><th>Actions</th></tr></thead>
+        <thead><tr><th>Tenant</th><th>Amount</th><th>Type</th><th>Method</th><th>Receipt</th><th>Status</th><th>Date</th></tr></thead>
         <tbody>
-          <tr v-if="loading"><td colspan="8" class="td-muted">Loading…</td></tr>
+          <tr v-if="loading"><td colspan="7" class="td-muted">Loading…</td></tr>
           <tr v-for="p in payments" :key="p.id">
-            <td class="td-name">{{ tenants.find(t => t.id === p.tenant_id)?.full_name ?? p.tenant_id.slice(0, 8) }}</td>
+            <td class="td-name">{{ tenants.find(t => t.id === p.tenant_id)?.full_name ?? '—' }}</td>
             <td class="td-amt">{{ formatMoney(p.amount) }}</td><td>{{ p.type }}</td><td>{{ p.method }}</td>
             <td class="td-muted" style="font-size:11px">{{ p.receipt_number ?? '—' }}</td>
             <td><span class="badge" :class="paymentBadgeClass(p.status)">{{ p.status }}</span></td>
             <td>{{ formatDate(p.payment_date) }}</td>
-            <td class="td-actions">
-              <button v-if="p.status === 'PENDING'" class="action-btn approve" @click="emit('confirm-payment', p.id)">Confirm</button>
-              <span v-else class="td-muted" style="font-size:11px">—</span>
-            </td>
           </tr>
-          <tr v-if="!loading && payments.length === 0"><td colspan="8" class="td-muted">No payments found.</td></tr>
+          <tr v-if="!loading && payments.length === 0"><td colspan="7" class="td-muted">No payments found.</td></tr>
         </tbody>
       </table>
     </div>

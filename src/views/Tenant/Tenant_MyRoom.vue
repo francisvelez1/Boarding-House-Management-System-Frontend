@@ -37,11 +37,22 @@ const emit = defineEmits<{
       <div class="hero-dash__stats">
         <div class="hero-dash__stat">
           <span class="stat-label">Your room</span>
-          <span class="stat-value stat-value--purple">{{ room?.room_number ?? '—' }}</span>
+          <!--
+            Prefer the denormalized `tenant.room_number` (returned by
+            `/api/tenants/me`) so the hero stat is correct as soon as the
+            tenant profile loads, *without* waiting on the secondary
+            `getRoom()` call. The full `room` object is still used as a
+            fallback in case an older backend doesn't denormalize.
+          -->
+          <span class="stat-value stat-value--purple">{{ tenant?.room_number ?? room?.room_number ?? '—' }}</span>
         </div>
         <div class="hero-dash__stat">
           <span class="stat-label">Floor</span>
-          <span class="stat-value stat-value--purple">{{ room?.floor_level ? floorShort(room.floor_level) : '—' }}</span>
+          <span class="stat-value stat-value--purple">{{
+            tenant?.floor_level
+              ? floorShort(tenant.floor_level)
+              : (room?.floor_level ? floorShort(room.floor_level) : '—')
+          }}</span>
         </div>
         <div class="hero-dash__stat">
           <span class="stat-label">Status</span>
@@ -63,7 +74,7 @@ const emit = defineEmits<{
         </div>
         <!-- Payments -->
         <div class="my-room-col">
-          <PaymentsCard v-if="paymentsForCard.length" :payments="paymentsForCard" :pay-loading="payNowLoading" @pay-now="emit('pay-now', $event)" @view-all="emit('scroll-to', 'payments')" />
+          <PaymentsCard v-if="paymentsForCard.length" :payments="paymentsForCard" :pay-loading="payNowLoading" :lease="lease" @pay-now="emit('pay-now', $event)" @view-all="emit('scroll-to', 'payments')" />
           <div v-else class="empty-card">
             <div class="empty-card__header">
               <span class="empty-card__title">Payments</span>

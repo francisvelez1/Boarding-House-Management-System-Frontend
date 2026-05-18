@@ -147,6 +147,29 @@ class ManagerService extends BaseService {
     return this.delete(`/tenants/${tenantId}/unassign`)
   }
 
+  // ── Scoped tenants (only those in rooms this manager owns) ────────────
+  // Backed by GET /api/manager/tenants — separate from the global
+  // /api/tenants endpoint so admin tooling stays unfiltered.
+  listTenants(limit = 100): Promise<any[]> {
+    return this.get('/tenants', { params: { limit } })
+  }
+
+  getTenantStats(): Promise<{ total: number; active: number; pending: number }> {
+    return this.get('/tenants/stats')
+  }
+
+  // ── Scoped booking requests (only applications for this manager's rooms) ─
+  // Backed by GET /api/manager/bookings — separate from /api/bookings/manager/all
+  // which returns every application in the system.
+  listBookings(opts: { status?: string; limit?: number } = {}): Promise<{
+    total: number
+    skip: number
+    limit: number
+    bookings: any[]
+  }> {
+    return this.get('/bookings', { params: { ...opts } })
+  }
+
   getAnalytics(): Promise<AnalyticsData> {
     return this.get('/analytics')
   }

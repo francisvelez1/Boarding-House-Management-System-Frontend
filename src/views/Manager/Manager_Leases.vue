@@ -6,6 +6,7 @@ const props = defineProps<{
   dashboard: { leases?: { active?: number; expiring_soon?: number } } | null
   leases: ManagerLease[]
   tenants: { id: string; full_name?: string }[]
+  rooms?: { id: string; room_number: string }[]
   formatDate: (v?: string | null) => string
   formatMoney: (v?: number) => string
 }>()
@@ -17,7 +18,17 @@ const emit = defineEmits<{
 
 function tenantName(tenantId: string): string {
   const t = props.tenants.find(t => t.id === tenantId)
-  return t?.full_name ?? tenantId.slice(0, 8)
+  // When the tenant can't be resolved (e.g. it belongs to a room another
+  // manager owns, or has been deleted) show a clean placeholder instead
+  // of a sliced ObjectId, which users were reading as a "hash".
+  return t?.full_name ?? '—'
+}
+
+function roomLabel(roomId: string): string {
+  const r = props.rooms?.find(r => r.id === roomId)
+  // Same rationale as `tenantName` — never leak the raw ObjectId into
+  // the UI. Show the room number when known, otherwise a placeholder.
+  return r?.room_number ? `Room ${r.room_number}` : '—'
 }
 </script>
 
@@ -32,7 +43,7 @@ function tenantName(tenantId: string): string {
           <tr v-for="l in leases" :key="l.id">
             <td class="td-muted">{{ l.id.slice(0, 8) }}…</td>
             <td class="td-name">{{ tenantName(l.tenant_id) }}</td>
-            <td>{{ l.room_id.slice(0, 8) }}</td>
+            <td>{{ roomLabel(l.room_id) }}</td>
             <td><span class="badge" :class="l.status === 'ACTIVE' ? 'badge-paid' : l.status === 'PENDING' ? 'badge-pending' : 'badge-unpaid'">{{ l.status }}</span></td>
             <td>{{ formatDate(l.start_date) }}</td><td>{{ formatDate(l.end_date) }}</td><td>{{ formatMoney(l.monthly_rent) }}</td>
             <td class="td-actions">

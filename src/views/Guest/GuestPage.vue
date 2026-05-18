@@ -42,7 +42,9 @@ const loading = ref(true)
 
 async function fetchRooms() {
   try {
-    const res = await fetch('/api/rooms/public/vacant')
+    // Explicit `limit=1000` so newly-added rooms always surface here.
+    // The backend hard-caps this at 1000 — see room_controller.py.
+    const res = await fetch('/api/rooms/public/vacant?limit=1000')
     if (!res.ok) throw new Error('API error')
     const json = await res.json()
     rooms.value = Array.isArray(json.data) ? json.data : []
@@ -141,8 +143,19 @@ const filteredRooms = computed(() => {
     list = list.filter(r => r.status === selectedStatus.value)
 
   if (searchQuery.value.trim()) {
+    // Treat the hero search as a location/property/room free-text query so
+    // typing a city, building name, or room number all return useful hits.
     const q = searchQuery.value.toLowerCase()
-    list = list.filter(r => r.room_number.toLowerCase().includes(q))
+    list = list.filter(r => {
+      const haystack = [
+        r.room_number,
+        r.property_name,
+        r.location,
+        r.address,
+        r.description,
+      ].filter(Boolean).join(' ').toLowerCase()
+      return haystack.includes(q)
+    })
   }
 
   if (searchPrice.value) {
@@ -263,6 +276,7 @@ function onRegisterError(msg: string) {
     <Hero
       v-model:search-location="searchQuery"
       v-model:search-price="searchPrice"
+      v-model:search-category="selectedType"
       :available-count="availableCount"
       @search="scrollToRooms"
     />
